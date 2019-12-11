@@ -1,0 +1,524 @@
+---
+title: "Afgasning af kuldioxid fra Danmarks søer og vandløb"
+author: "Kenneth Thorø Martinsen"
+date: "`r format(Sys.time(), '%d %B %Y')`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+#knitr::opts_chunk$set(cache=TRUE)
+
+library(tidyverse);library(lubridate);library(sf);library(seacarb)
+library(knitr);library(kableExtra);library(lwgeom)
+
+set.seed(9999)
+
+data_path <- paste0(getwd(), "/data/")
+
+dk_epsg <- 3044 #25832
+
+#hvis perioden skal udvides skal der hentes yderligere sø data (se gammelt script for prep)
+#overvej at gøre hele analysen reproducerbar
+time_start <- ymd("2000-01-01")
+time_end <- ymd("2009-12-31")
+
+#vl og so pco2
+vl_pco2 <- readRDS(paste0(data_path, "vl_pco2.rds")) %>% 
+  filter(Q_m3_s > 0) %>% 
+  filter(between(date, time_start, time_end)) %>% 
+  mutate_at(vars(Xutm_Euref89_Zone32, Yutm_Euref89_Zone32), funs(parse_number(.))) %>% 
+  st_as_sf(coords = c("Xutm_Euref89_Zone32", "Yutm_Euref89_Zone32"), crs = dk_epsg)
+
+so_pco2 <- readRDS(paste0(data_path, "so_pco2.rds")) %>% 
+  ungroup() %>% 
+  filter(between(date, time_start, time_end)) %>% 
+  st_as_sf(coords = c("Xutm_Euref89_Zone32", "Yutm_Euref89_Zone32"), crs = dk_epsg)
+
+#dk climate grid 20x20 km 1990-2010
+wnd_grid <- read.delim(paste0(data_path, "tr12-10_20x20km/daily_20x20km_wind speed_1989-2010.txt"),
+                       sep = ";", stringsAsFactors = FALSE) %>%
+  tbl_df() %>%
+  rename(wnd = X20.20km_Mean_wind_speed_.m.s., dmi.cell = gridcelle) %>%
+  mutate(Date = ymd(paste(year, month, day, sep = "-"))) %>%
+  select(date = Date, dmi.cell, wnd, utm_zone, eastings, northings)
+
+wnd_grid_sf <- wnd_grid %>%
+  select(dmi.cell, eastings, northings) %>%
+  distinct() %>%
+  st_as_sf(coords = c("eastings", "northings"), crs = dk_epsg)
+
+#dk standingwater
+lakes <- st_read(paste0(data_path, "DK_PhysicalWaters_GML_UTM32-EUREF89/DK_StandingWater.gml")) %>% 
+  select(gml_id, area = surfaceArea)
+
+saveRDS(lakes, paste0(data_path, "lakes.rds"))
+
+#dk stream, calc slope by drop/distance
+streams <- st_read(paste0(data_path, "DK_PhysicalWaters_GML_UTM32-EUREF89/DK_Watercourse.gml")) %>% 
+  select(gml_id, length) %>% 
+  rownames_to_column(var = "L1") %>% 
+  filter(length > 0)
+
+streams_drop <- streams %>% 
+  slice(1:1000) %>% 
+  st_coordinates() %>% 
+  as.data.frame() %>% 
+  mutate(Z_na = ifelse(Z == -999 | Z < -10, NA, Z),
+         L1 = as.character(L1)) %>% 
+  group_by(L1) %>% 
+  add_tally() %>% 
+  filter(n >= 5) %>% 
+  arrange(desc(Z_na)) %>% 
+  slice(2:n()-1) %>% 
+  summarise(drop = abs(diff(range(Z_na))), n=n()) %>% 
+  right_join(streams) %>% 
+  mutate(slope = drop/length)
+
+saveRDS(streams_drop, paste0(data_path, "streams_drop.rds"))
+
+
+# 
+# so_pco2_sf <- so_pco2 %>% 
+#   select(ObservationsStedNr, Xutm_Euref89_Zone32, Yutm_Euref89_Zone32) %>% 
+#   distinct() %>% 
+#   st_as_sf(coords = c("Xutm_Euref89_Zone32", "Yutm_Euref89_Zone32"), crs = st_crs(standingswater)) %>% 
+#   st_join(wnd.grid.sf, join = st_nearest_feature) %>% 
+#   st_join(standingswater) %>% #nogen punkter joiner med flere polygoner, fjernes for at undgå dobbelt co2 flux data
+#   distinct(ObservationsStedNr, .keep_all = TRUE) %>% 
+#   st_set_geometry(NULL)
+# 
+# #so pco2 data med wind for periode 1989-2010
+# so_pco2_extra <- so_pco2 %>% 
+#   left_join(so_pco2_sf) %>% 
+#   left_join(wnd.grid %>% 
+#               select(date, dmi.cell, wnd))
+# 
+# 
+# 
+# #lav vl slope fra 3d stream vector lines
+# 
+# 
+# 
+# 
+# #vl stat slope - extract i saga fra 25m EU dem (i pct og /100 efterfølgende)
+# vl_pco2_stat <- vl_pco2 %>% 
+#   select(vl_id = ObservationsStedNr, Xutm_Euref89_Zone32, Yutm_Euref89_Zone32) %>% 
+#   distinct() %>% 
+#   mutate_at(vars(Xutm_Euref89_Zone32, Yutm_Euref89_Zone32), funs(parse_number)) %>% 
+#   st_as_sf(coords = c("Xutm_Euref89_Zone32", "Yutm_Euref89_Zone32"), crs = st_crs(standingswater))
+# #st_write(vl_pco2_stat, "H:/Documents/Miljoportalen SOER/vl_pco2_stat.shp")
+# 
+# vl_pco2_stat_slope <- st_read("H:/Documents/Miljoportalen SOER/vl_pco2_stat_slope.shp") %>% 
+#   st_set_geometry(NULL) %>% 
+#   rename(ObservationsStedNr = vl_id, slope = eu_dem_25m_)
+# 
+# vl_pco2_slope <- vl_pco2 %>% 
+#   left_join(vl_pco2_stat_slope)
+# 
+# # #vl data
+# # vl_station_info <- readRDS("H:/Documents/CO2 Vandløb/vl_station_info.rds")
+# # vl_co2_data <- readRDS("H:/Documents/CO2 Vandløb/vl_co2_data.rds")
+# # 
+# # so_co2_data <- readRDS("so_co2_data.rds")
+# # so_station_info <- readRDS("so_station_info.rds")
+# 
+
+```
+
+```{r}
+#summary af søer over/under 10 ha til kaj 17-04-2019
+library(xlsx)
+dk_map <- readRDS("gadm36_DNK_2_sp.rds") %>% 
+  st_as_sf() %>% 
+  add_column(id = 1:99) %>% 
+  #filter(NAME_1 == "Syddanmark")
+  mutate(id_2 = case_when(NAME_1 %in% c("Midtjylland", "Nordjylland") ~ "jylland",
+                          id %in% c(78, 81, 82, 84, 85, 86,88, 94, 96, 97, 98, 99) ~ "jylland",
+                          TRUE ~ "øerne")) %>% 
+  group_by(id_2) %>% 
+  summarise() %>% 
+  st_transform(st_crs(standingswater))
+plot(dk_map)
+
+alk_pkt <- so_pco2_extra %>%
+  mutate(lakearea_10ha = ifelse(area > 100000, "over10ha", "under10ha")) %>%
+  filter(!is.na(lakearea_10ha)) %>%
+  group_by(lakearea_10ha, ObservationsStedNr) %>%
+  summarise(alk_mean = median(alk, na.rm = TRUE), 
+            Xutm_Euref89_Zone32 = first(Xutm_Euref89_Zone32), Yutm_Euref89_Zone32 = first(Yutm_Euref89_Zone32)) %>%
+  st_as_sf(coords = c("Xutm_Euref89_Zone32", "Yutm_Euref89_Zone32"), crs = st_crs(standingswater))
+  
+  ggplot()+
+  geom_sf(data = dk_map, aes(fill = id_2))+
+  geom_sf(data = alk_pkt, aes(col = alk_mean))+
+  scale_color_viridis_c(direction = -1)+
+  scale_fill_grey()+
+  theme_void()
+  
+alk_pkt %>% 
+  st_join(dk_map) %>% 
+  st_drop_geometry() %>% 
+  na.omit() %>% 
+  
+  # ggplot(aes(alk_mean, fill = lakearea_10ha))+
+  # geom_density(alpha = 0.5)+
+  # xlab("alkalinitet (meq/liter)")+
+  # facet_grid(id_2~.)+theme_bw()
+
+  group_by(lakearea_10ha, id_2) %>% 
+  summarise(n = n(), mean = mean(alk_mean), median = median(alk_mean),
+            min = min(alk_mean), max = max(alk_mean),
+            q25 = quantile(alk_mean, 0.25), q75 = quantile(alk_mean, 0.75),
+            q05 = quantile(alk_mean, 0.05), q95 = quantile(alk_mean, 0.95)) %>%
+  ungroup() %>% 
+  write.xlsx2(paste0(getwd(), "/lake_alk_kaj.xlsx"))
+
+```
+
+
+# Introduction
+This analysis attempts to estimate the carbon dioxide (CO~2~) emissions from Danish inland waters. The data in this analysis is compiled from Miljøportalen which stores data from the Danish monitoring program. CO~2~ pressure is estimated from water temperature, alkalinity and pH. The gas transfer velocity (*k*) is estimated from empirical relationships parameterized by wind (lakes) or hydrological variables (streams and rivers). GIS layers containing the outline of Danish inland waters allow extraction of area (lakes) and length (streams and rivers) data. The inherent uncertainty in the upscaling of CO~2~ gas flux to a national scale incorporated using a Monte Carlo simulation approach.
+
+## Lakes
+
+### Number and size distribution of Danish lakes
+
+In order to constrain the estimation of carbon dioxide (CO~2~) emissions from Danish lakes detailed knowledge on the size distribution of Danish lakes are required. This analysis is based on data set <https://download.kortforsyningen.dk/content/inspirehy-standingwater> with `r nrow(standingswater)` Danish lake surfaces covering a total of `r format(sum(standingswater$surfaceArea)*10^-6, digits = 0)` km^2^. The resolution is 1:10.000 and data extracted from topographic base maps. Lakes are split into six size classes according to their size (m^2^). Plots show the number of lakes in each size class (left) and the combined area of each size class (right). The tables summarizes the data.
+
+```{r danske_soer, echo=FALSE, fig.height = 4, fig.width = 10}
+lake_size <- standingswater %>% 
+  st_set_geometry(NULL) %>% 
+  mutate(sizecat = cut(area, breaks = c(0, 1000, 10^4, 10^5, 10^6, 10^7, 10^8), right = FALSE)) %>% 
+  group_by(sizecat) %>% 
+  summarise(Number = n(), Sum = sum(area)) %>% 
+  mutate(Size = c("0-10^3^", "10^3^-10^4^", "10^4^-10^5^", "10^5^-10^6^", "10^6^-10^7^", "10^7^-10^8^")) 
+
+label.class <- c(expression("0-10"^3), expression("10"^3*"-10"^4), expression("10"^4*"-10"^5),
+           expression("10"^5*"-10"^6), expression("10"^6*"-10"^7), expression("10"^7*"-10"^8))
+
+antal <- ggplot(lake_size, aes(Size, Number)) + 
+  geom_col() + 
+  scale_y_log10() +
+  scale_x_discrete(labels = label.class) +
+  theme_bw()
+
+areal <- ggplot(lake_size, aes(Size, Sum)) + 
+  geom_col() + 
+  scale_y_continuous(labels = scales::scientific) +
+  ylab(expression("Area (m"^2*")")) +
+  scale_x_discrete(labels = label.class) +
+  theme_bw()
+
+grid.arrange(antal, areal, ncol = 2)
+
+# kable(lake_size[,c(4, 2, 3)], "html", caption = "Number and area for each lake size class") %>%
+#   kable_styling(bootstrap_options = "striped", full_width = F, position = "left")
+
+```
+
+### Estimating the carbon dioxide partial pressure danish lakes
+The CO~2~ partial pressure ($u$atm) is calculated from alkalinity (meq L^-1^), pH and water temperature (&deg;C). For lakes only samples taken from surface waters, the epilimnion or a fully mixed water column are used for further analysis.
+
+```{r so_partpressure, echo=FALSE, message=FALSE, fig.height = 4, fig.width = 5}
+
+# so_co2_partpressure <- so_co2_data %>% 
+#   filter(ph > 4, alk > 1, alk < 10) %>% #sortere de helt bløde vande fra, hvilke kriterier?
+#   mutate(pco2 = water_co2(ph, alk, wtr), henry = water_co2(ph, alk, wtr, K.henry = TRUE)) %>% 
+#   left_join(so_station_info) %>% 
+#   mutate(sizecat = cut(area, breaks = c(0, 1000, 10^4, 10^5, 10^6, 10^7, 10^8), right = FALSE)) %>% 
+#   filter(pco2 < 25000) #tilfældig øvre grænse
+
+so_pco2_extra_sub <- so_pco2_extra %>% 
+  mutate(sizecat = cut(area, breaks = c(0, 1000, 10^4, 10^5, 10^6, 10^7, 10^8), right = FALSE)) %>% 
+  filter(pco2_uatm < 25000)
+
+so_pco2_extra_sub %>% 
+  na.omit(sizecat) %>%
+  ggplot(aes(pco2_uatm, col = sizecat)) + 
+  geom_density() +
+  scale_color_viridis_d(name = "Size", labels = label.class)+
+  scale_x_log10() +
+  theme_bw()
+
+so_pco2_extra_sub %>% 
+  select(wtr, ph, alk, pco2_uatm) %>% 
+  rename("Water temp." = wtr, pH = ph, Alkalinity = alk, "CO~2~ part. pres." = pco2_uatm) %>% 
+  gather(Variable, value) %>% 
+  group_by(Variable) %>% 
+  summarise(Min = min(value), "1st Qu." = quantile(value, 0.25), Median = median(value), 
+            Mean = mean(value), "3rd Qu." = quantile(value, 0.75), Max = max(value)) %>% 
+  kable(format = "html", digits = 1, caption = "Summary table for water temperature, alkalinity, pH and pCO~2~ in Danish lakes") %>% 
+  kable_styling(bootstrap_options = "striped", full_width = F, position = "left")
+
+#so_co2_partpressure %>% 
+#  select(sta_id, lat, long, pco2) %>% 
+#  gather(variable, value, pco2) %>% 
+#  group_by(sta_id, variable) %>% 
+#  summarise(value = median(value), lat = first(lat), long = first(long)) %>% 
+#  ggplot(aes(x = long, y = lat, col = value)) + 
+#  borders("worldHires", colour = "black", xlim = kort.xlim, ylim = kort.ylim) +
+#  geom_point() +
+#  coord_quickmap(xlim = kort.xlim, ylim = kort.ylim)
+  
+
+```
+
+A total of `r nrow(so_pco2_extra_sub)` records with alkalinity, pH and water temperature from lake surface waters exist from `r length(unique(so_pco2_extra_sub$ObservationsStedNr))` different sampling stations.
+
+### Estimating carbon dioxide gas flux from Danish lakes
+
+The CO~2~ gas flux on lakes can be estimated from the gas transfer velocity (*k*) and air-water concentration gradient. *k* is often estimated from empirical relationships, where *k~600~* (*k* standardized to a Schmidt number of 600, which is CO~2~ at 20 &deg;C) is a function of wind speed (m s^-1^). Here, five different relationships are included which all depend on wind speed and one that also include area (m^2^). The mean of these five relationships (four when information on area is not present) are used as an estimate of *k~600~*. *k~600~* is converted to the ambient water temperature using the ratio of Schmidt numbers.  
+
+Wind speed is obtained from a DMI data set which contain daily values of wind speed in 20x20 km grids over Denmark from 1989 to 2010 <http://www.dmi.dk/fileadmin/Rapporter/TR/tr12-10.pdf>. These values are used to estimate *k* and in turn the CO~2~ gas flux. 
+
+```{r so_flux, echo=FALSE, message=FALSE}
+# so_co2_partpressure_subset <- so_co2_partpressure %>% 
+#   filter(between(Date, ymd("1989-01-01"), ymd("2010-12-31")))
+
+# source("aux_functions.R")
+so_co2_flux <- so_pco2_extra_sub %>% 
+  filter(!is.na(wnd)) %>% 
+  #left_join(wnd.grid, by = c("Date", "dmi.cell")) %>% 
+  mutate(k600_cole = 2.07 + 0.215 * wnd^1.7, 
+         k600_crusius_1 = 0.228 * wnd^2.2 + 0.168, 
+         k600_crusius_2 = ifelse(wnd<3.7, 0.72*wnd, 4.33*wnd-13.3),
+         k600_vachon_1 = 1.41 + 2.58 * wnd,
+         k600_vachon_2 = 2.51 + 1.48 * wnd + 0.39 * wnd * log10(area),
+         sc = 1742 + -91.24*wtr + 2.208*wtr^2 + -0.0219*wtr^3,
+         k600_mean = ifelse(is.na(area), 
+                            (k600_cole + k600_crusius_1 + k600_crusius_2 + k600_vachon_1)/4,
+                            (k600_cole + k600_crusius_1 + k600_crusius_2 + k600_vachon_1 + k600_vachon_2)/5),
+         kgas = (sc/600)^-0.5 * k600_mean) %>%  #k600 og kgas i cm/h
+  mutate(co2_eq_mol_kg = 400*10^-6*K0(S = 0, T = wtr)) %>% 
+  mutate(co2_flux = kgas/100*(co2_mol_kg-co2_eq_mol_kg)*10^6) #%>%  #flux in mmol CO2/m2/h
+  #mutate(co2_flux_enhance = chem_enhance_beta(kgas, wtr, ph)*kgas/100*henry*(pco2-400)) #pas på k enhed og enhance
+  
+so_co2_flux_sizeclass <- so_co2_flux %>% 
+  group_by(sizecat) %>% 
+  summarise("Number of samples" = n(), "Number of sites" = length(unique(ObservationsStedNr)), 
+            Mean = mean(co2_flux, na.rm = TRUE), Std. = sd(co2_flux, na.rm = TRUE)) %>% 
+  mutate(Size = c("0-10^3^", "10^3^-10^4^", "10^4^-10^5^", "10^5^-10^6^", "10^6^-10^7^", "10^7^-10^8^", "Ukendt areal")) %>% 
+  select(Size, "Number of samples", "Number of sites", Mean, Std.)
+
+so_co2_flux_sizeclass %>% 
+  kable(format = "html", digits = 1, caption = "CO~2~ gas flux (mmol m^-2^ h^-1^)  from danish lakes") %>% 
+  kable_styling(bootstrap_options = "striped", full_width = F, position = "left")
+
+```
+
+Because of the time frame of the DMI data the number of pCO~2~ samples used to estimate CO~2~ gas flux is reduced to `r nrow(so_pco2_extra_sub %>% filter(!is.na(wnd)) %>% select(ObservationsStedNr))` records from `r length(unique(so_pco2_extra_sub %>% filter(!is.na(wnd)) %>% pull(ObservationsStedNr)))` stations. 
+
+With the data on area and CO~2~ gas flux now available for each lake size class an upscaling to a national scale can be made. Using a Monte Carlo approach a probable range can be estimated by simulation. For each lake size class, a random draw from a normal distribution with mean and standard deviation given in the previous table for CO~2~ gas flux is multiplied by the corresponding area. This is repeated 1000 times for each lake size class. Finally, a total for all lakes is calculated by summation and summary statistics derived. Gas flux units are converted to XYgrams year^-1^ assuming 365 ice free days. 
+
+```{r so_upscale, echo=FALSE, message=FALSE}
+so_upscale <- so_co2_flux_sizeclass %>% 
+  filter(!(Size == "Ukendt areal")) %>% 
+  left_join(lake_size) %>% 
+  mutate(flux_rnorm = map2(Mean, Std., rnorm, n = 1000)) %>% 
+  unnest(flux_rnorm) %>% 
+  mutate(flux_year = flux_rnorm * Sum * 24 * 365 * 10^-3,
+         flux_gigagram = flux_year * 12 * 10^-9)  #flux_year = mol/år, flux_gigagram = gigagram C/år
+  
+so_upscale %>% 
+  group_by(Size) %>% 
+  summarise("1st Qu." = quantile(flux_gigagram, 0.25), Median = median(flux_gigagram), 
+            Mean = mean(flux_gigagram), "3rd Qu." = quantile(flux_gigagram, 0.75)) %>% 
+  kable(format = "html", digits = 1, caption = "CO~2~ gas flux (gigagram C year^-1^) for each lake size class") %>% 
+  kable_styling(bootstrap_options = "striped", full_width = F, position = "left")
+
+so_upscale_tot <- so_upscale %>% 
+  select(Size, flux_gigagram) %>% 
+  nest(-Size)
+
+so_dk_tot <- summarise(so_upscale_tot$data[[1]]+so_upscale_tot$data[[2]]+so_upscale_tot$data[[3]]+
+  so_upscale_tot$data[[4]]+so_upscale_tot$data[[5]]+so_upscale_tot$data[[6]], 
+  "1st Qu." = quantile(flux_gigagram, 0.25), Median = median(flux_gigagram), 
+            Mean = mean(flux_gigagram), "3rd Qu." = quantile(flux_gigagram, 0.75))
+
+```
+
+
+## Streams and rivers
+
+### Length of Danish streams and rivers
+In order to constrain the estimation of carbon dioxide (CO~2~) emissions from danish streams and rivers detailed knowledge on the length and width (area) distribution of danish streams and rivers are required. For streams and rivers, data from two sources are used: The first is from a table in the book *Running waters* and the second is based on data from a map similar to the one used for lakes <https://download.kortforsyningen.dk/content/inspirehy-watercourse>. The map only have watercourses as lines and therefore no information on the width, therefore the sizeproportion of three classes are assumed to be equal for both sources. In this analysis both sources are used as a lower and upper boundary. The watercourse length (km^2^) data for each class is presented in the table below.
+
+```{r vl_length, echo=FALSE}
+vl_area <- tibble(sizecat = factor(c("Small", "Medium", "Large"), levels = c("Small", "Medium", "Large")), 
+                  width = c("0-2.5 m", "2.5-8 m", ">8 m"), 
+       length.book = c(48000, 14500, 1500)) %>% 
+  mutate(prop.length.book = c(48000, 14500, 1500)/sum(c(48000, 14500, 1500)),
+         length.map = prop.length.book * 86551523/1000)
+
+vl_area %>% 
+  select(sizecat, width, length.book, length.map) %>% 
+  rename("Size category" = sizecat, Width = width, "Length^1^" = length.book, "Length^2^" = length.map) %>% 
+  kable(format = "html", digits = 0, caption = "Length of Danish streams and rivers for each size class") %>% 
+  kable_styling(bootstrap_options = "striped", full_width = F, position = "left") %>% 
+  add_footnote(c("Running waters","GeoDanmark"), notation = "number")
+```
+
+### Estimating the carbon dioxide partial pressure danish streams and rivers
+
+The CO~2~ partial pressure ($u$atm) is calculated from alkalinity (meq L^-1^), pH and water temperature (&deg;C) using the same method as for lakes.
+
+```{r vl_partpressure, echo=FALSE, message=FALSE, warning=FALSE}
+
+# vl_co2_partpressure <- vl_co2_data %>% 
+#   rename(wtr = temp) %>% 
+#   filter(ph > 4, alk > 1, alk < 10, wtr < 50) %>% #sortere de helt bløde vande fra, hvilke kriterier?
+#   mutate(pco2 = water_co2(ph, alk, wtr), henry = water_co2(ph, alk, wtr, K.henry = TRUE)) %>% 
+  
+vl_pco2_extra <- vl_pco2_slope %>% 
+  mutate(v = 0.19*Q_m3_s^0.285, 
+         d = 0.4*Q_m3_s^0.294, 
+         w = 12.88*Q_m3_s^0.423, 
+         fr = v/(9.82*d)^0.5) %>% 
+  filter(pco2_uatm < 25000) #tilfældig øvre grænse
+
+vl_stat_sizecat <- vl_pco2_extra %>% 
+  group_by(ObservationsStedNr) %>% 
+  summarise(w_sta_id = mean(w, na.rm = TRUE)) %>% 
+  mutate(sizecat = cut(w_sta_id, breaks = c(0, 2.5, 8, 100), 
+                       right = FALSE, labels = c("Small", "Medium", "Large"))) %>% 
+  na.omit()
+
+vl_sizecat_area <- vl_stat_sizecat %>% 
+  group_by(sizecat) %>% 
+  summarise(w_sizecat = mean(w_sta_id, na.rm = TRUE)) %>% 
+  left_join(vl_area) %>% 
+  mutate(area.book = length.book * 1000 * w_sizecat,
+         area.map = length.map * 1000 * w_sizecat)
+
+vl_pco2_extra %>% 
+  select(wtr, ph, alk, pco2_uatm) %>% 
+  rename("Water temp." = wtr, pH = ph, Alkalinity = alk, "CO~2~ part. pres." = pco2_uatm) %>% 
+  gather(Variable, value) %>% 
+  group_by(Variable) %>% 
+  summarise(Min = min(value), "1st Qu." = quantile(value, 0.25), Median = median(value), 
+            Mean = mean(value), "3rd Qu." = quantile(value, 0.75), Max = max(value)) %>% 
+  kable(format = "html", digits = 1, caption = "Summary table for water temperature, alkalinity, pH and pCO~2~ in Danish streams and rivers") %>% 
+  kable_styling(bootstrap_options = "striped", full_width = F, position = "left")
+
+```
+
+A total of `r nrow(vl_pco2_extra)` records with alkalinity, pH and water temperature from streams and rivers exist from `r length(unique(vl_pco2_extra$ObservationsStedNr))` different sampling stations. For discharge (m^3^ s^-1^), `r length(vl_pco2_extra %>% filter(!is.na(Q_m3_s)))` records from `r length(unique(vl_pco2_extra %>% filter(!is.na(Q_m3_s)) %>% pull(ObservationsStedNr)))` stations are also available.
+
+### Estimating carbon dioxide gas flux from Danish streams and rivers
+
+Estimates of CO~2~ gas flux from streams and rivers are based on the air-water pCO~2~ gradient and the gas transfer velocity derived from hydraulic geometry and empirical relationships. Using hydraulic scaling, stream velocity (m s^-1^), depth (m) and width are calculation from discharge. *k~600~* values are then estimated from the mean of seven empirical relationships and *k* calculated from the ratio of Schmidt numbers. These relationships are based on the derived hydrological variables and also slope. In this analysis the landscape slope (unitless) is calculated for each station based on an digital elevation model for Denmark with a 10 m resolution <https://download.kortforsyningen.dk/content/dhm-2007terr%C3%A6n-10-m-grid>. All equations are presented in Raymond et al. 2012.  
+
+To upscale the resulting gas flux estimates to national scale, the stations are classified according to size using the mean width. The mean stream width for each size category is then used to calculate the stream area (m^2^) for each category. A similar Monte Carlo approach as used for lakes are then applied. The uncertainty in stream area are in this case represented by an uniform distribution with a lower and upper bound presented in the previous table.
+
+```{r vl_flux, echo=FALSE, message=FALSE}
+vl_co2_flux <- vl_pco2_extra %>% 
+  #filter(q < 50) %>% 
+  left_join(vl_stat_sizecat) %>% 
+  mutate(sc = 1742 + -91.24*wtr + 2.208*wtr^2 + -0.0219*wtr^3,
+         k600_1 = (v*slope)^0.89*d^0.54*5037,
+         k600_2 = 5937*(1-2.54*fr^2)*(v*slope)^0.89*d^0.58,
+         k600_3 = 1162*slope^0.77*v^0.85,
+         k600_4 = (v*slope)^0.76*951.5,
+         k600_5 = v*slope*2841+2.02,
+         k600_6 = 929*(v*slope)^0.75*Q_m3_s^0.011,
+         k600_7 = 4725*(v*slope)^0.86*Q_m3_s^-0.14*d^0.66) %>% #k600 i m/d
+  mutate(k600_mean = (k600_1+k600_2+k600_3+k600_4+k600_5+k600_6+k600_7)/7,
+         kgas = (sc/600)^-0.5*k600_mean) %>% 
+  mutate(co2_eq_mol_kg = 400*10^-6*K0(S = 0, T = wtr)) %>% 
+  mutate(co2_flux = kgas/24*(co2_mol_kg-co2_eq_mol_kg)*10^6) #flux in mmol CO2/m2/h
+
+vl_co2_flux_sizeclass <- vl_co2_flux %>% 
+  group_by(sizecat) %>% 
+  summarise("Number of samples" = n(), "Number of sites" = length(unique(ObservationsStedNr)), 
+            Mean = mean(co2_flux, na.rm = TRUE), Std. = sd(co2_flux, na.rm = TRUE)) %>% 
+  na.omit() %>% 
+  mutate(Size = factor(c("Small", "Medium", "Large"), levels = c("Small", "Medium", "Large"))) %>% 
+  select(Size, "Number of samples", "Number of sites", Mean, Std.)
+
+vl_co2_flux_sizeclass %>% 
+  kable(format = "html", digits = 1, caption = "CO~2~ gas flux (mmol m^-2^ h^-1^)  from Danish streams and River") %>% 
+  kable_styling(bootstrap_options = "striped", full_width = F, position = "left")
+
+
+```
+
+Using the data on area, the contribution of different size class for Danish streams and rivers to CO~2~ gas flux are presented in the table below. 
+
+```{r vl_upscale, echo=FALSE, message=FALSE}
+
+vl_upscale <- vl_co2_flux_sizeclass %>% 
+  left_join(vl_sizecat_area, c("Size" = "sizecat")) %>% 
+  mutate(flux_rnorm = map2(Mean, Std., rnorm, n = 1000), 
+         area_rnorm = map2(area.book, area.map, runif, n = 1000)) %>%
+  mutate(flux_sizecat = map2(flux_rnorm, area_rnorm, `*`)) %>%  #flux_sizecat = mmol CO2/h
+  unnest(flux_sizecat) %>% 
+  mutate(flux_year = flux_sizecat * 24 * 365 * 10^-3,
+         flux_gigagram = flux_year * 12 * 10^-9)  #flux_year = mol/år, flux_gigagram = giga C/år
+  
+vl_upscale %>% 
+  group_by(Size) %>% 
+  summarise("1st Qu." = quantile(flux_gigagram, 0.25), Median = median(flux_gigagram), 
+            Mean = mean(flux_gigagram), "3rd Qu." = quantile(flux_gigagram, 0.75)) %>% 
+  kable(format = "html", digits = 1, caption = "CO~2~ gas flux (gigagram year^-1^) for each size class") %>% 
+  kable_styling(bootstrap_options = "striped", full_width = F, position = "left")
+
+vl_upscale_tot <- vl_upscale %>% 
+  select(Size, flux_gigagram) %>% 
+  nest(-Size)
+
+vl_dk_tot <- summarise(vl_upscale_tot$data[[1]]+vl_upscale_tot$data[[2]]+vl_upscale_tot$data[[3]], 
+  "1st Qu." = quantile(flux_gigagram, 0.25), Median = median(flux_gigagram), 
+            Mean = mean(flux_gigagram), "3rd Qu." = quantile(flux_gigagram, 0.75))
+
+```
+
+## The carbon dioxide gas flux from Danish inland waters
+
+The average CO~2~ emissions (Tg year^-1^) from Danish lakes, streams and rivers are given in the table below accompanied by summary statistics.
+
+```{r vl_dk, echo=FALSE, message=FALSE}
+
+dk_tot <- bind_rows("Lakes" = so_dk_tot, "Streams and rivers" = vl_dk_tot,
+                       "Total" = colSums(bind_rows(so_dk_tot, vl_dk_tot)), .id = "Source") 
+
+dk_tot %>% 
+  mutate_if(is.numeric, funs(./1000)) %>% 
+  kable(format = "html", digits = 1, caption = "CO~2~ gas flux for Danish inland waters (teragram C year^-1^)") %>% 
+  kable_styling(bootstrap_options = "striped", full_width = F, position = "left")
+
+# #dansk tabel
+# dk_tot %>% 
+#   add_column("Kilde" = c("Søer", "Vandløb", "Sum")) %>% 
+#   rename("Første kvartil" = "1st Qu.", "Tredje kvartil" = "3rd Qu.", Middelværdi = Mean) %>% 
+#   select(Kilde, "Første kvartil", Median, Middelværdi, "Tredje kvartil") %>% 
+#   kable(format = "html", digits = 1, caption = "CO~2~ afgasning fra danske søer og vandløb (teragram C year^-1^)") %>% 
+#   kable_styling(bootstrap_options = "striped", full_width = F, position = "left")
+
+```
+
+```{r samlet_table}
+#enhed er gigagram
+
+vl_budget <- vl_upscale_tot %>% 
+  unnest() %>% 
+  group_by(Size) %>% 
+  summarise("1st Qu." = quantile(flux_gigagram, 0.25), 
+            Median = median(flux_gigagram), 
+            Mean = mean(flux_gigagram), 
+            "3rd Qu." = quantile(flux_gigagram, 0.75)) 
+
+so_budget <- so_upscale_tot %>% 
+   unnest() %>% 
+  group_by(Size) %>%  
+  summarise("1st Qu." = quantile(flux_gigagram, 0.25), 
+            Median = median(flux_gigagram), 
+            Mean = mean(flux_gigagram), 
+            "3rd Qu." = quantile(flux_gigagram, 0.75))
+
+dk_budget <- bind_rows("Lakes" = so_budget, 
+                       "Streams" = vl_budget, 
+                       .id = "Source") 
+#write.csv(dk_budget, "H:/Documents/Miljoportalen SOER/dk_budget_table.csv", row.names = FALSE)
+```
+
