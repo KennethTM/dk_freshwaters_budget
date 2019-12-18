@@ -37,7 +37,7 @@ dk_chem_so_clean <- dk_chem_so[, .(site_id = ObservationsStedNr, x_coord = Xutm_
                                date = as.Date(as.character(Startdato), format = "%Y%m%d"), depth_sample = `GennemsnitsDybde i m`,
                                var_unit = paste0("chem_", Parameter, "_", Enhed), value = Resultat)]
 
-dk_chem_so_clean_wide <- dcast(dk_chem_so_clean, site_id + x_coord + y_coord + date ~ var_unit, value.var = "value", fun = mean, fill = NA)
+dk_chem_so_clean_wide <- dcast(dk_chem_so_clean[order(site_id, date, depth_sample)], site_id + x_coord + y_coord + date ~ var_unit, value.var = "value", fun = first, fill = NA)
 
 setkey(dk_chem_so_clean_wide, site_id, date)
 
@@ -45,7 +45,7 @@ dk_profil_so_clean <- dk_profil_so[, .(site_id = ObservationsStedNr, x_coord = X
                                    date = as.Date(as.character(Startdato), format = "%Y%m%d"), depth = MåledybdeM, 
                                    var_unit = paste0("profil_", Parameter, "_", Enhed), value = Resultat)]
 
-dk_profil_so_clean_wide <- dcast(dk_profil_so_clean, site_id + date ~ var_unit, value.var = "value", fun = mean, fill = NA)
+dk_profil_so_clean_wide <- dcast(dk_profil_so_clean[order(site_id, date, depth)], site_id + date ~ var_unit, value.var = "value", fun = first, fill = NA) #sort obs, og brug first istedet for
 
 setkey(dk_profil_so_clean_wide, site_id, date)
 
@@ -63,7 +63,7 @@ dk_samlet <- rbindlist(list(dk_all_clean, dk_all_clean_so), use.names = TRUE)
 
 dk_samlet_na <- na.omit(dk_samlet)
 
-dk_carb <- carb(flag = 8, dk_samlet_na$ph, dk_samlet_na$alk/1000, T = dk_samlet_na$wtr, S = 0)
+dk_carb <- carb(flag = 8, dk_samlet_na$ph, dk_samlet_na$alk/1000, T = dk_samlet_na$wtr, S = 0, Patm = 1, k1k2 = "w14", kf = "dg", ks = "d")
 
 dk_carb_sub <- dk_carb[, c("pCO2", "DIC", "CO2")]
 
