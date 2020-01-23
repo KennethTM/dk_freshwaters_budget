@@ -19,8 +19,6 @@ rawdata_path <- paste0(getwd(), "/rawdata/")
 
 dk_epsg <- 3044 #25832
 
-#hvis perioden skal udvides skal der hentes yderligere sø data (se gammelt script for prep)
-#overvej at gøre hele analysen reproducerbar
 time_start <- ymd("1989-01-01")
 time_end <- ymd("2010-12-31")
 
@@ -275,11 +273,11 @@ vl_co2_flux <- vl_pco2_hydro %>%
          k600_2 = 5937*(1-2.54*fr^2)*(v*slope)^0.89*d^0.58,
          k600_3 = 1162*slope^0.77*v^0.85,
          k600_4 = (v*slope)^0.76*951.5,
-         k600_5 = v*slope*2841+2.02,
+         k600_5 = v*slope*2841+2.02, 
          k600_6 = 929*(v*slope)^0.75*q_m3_s^0.011,
          k600_7 = 4725*(v*slope)^0.86*q_m3_s^-0.14*d^0.66) %>% #k600 i m/d
   mutate(k600_mean = (k600_1+k600_2+k600_3+k600_4+k600_5+k600_6+k600_7)/7,
-         kgas = (sc/600)^-0.5*k600_mean) %>% 
+         kgas = (sc/600)^-0.5*k600_5) %>% #KUN EQ. 5
   mutate(co2_eq_mol_kg = 400*10^-6*K0(S = 0, T = wtr)) %>% 
   mutate(co2_flux_mmol_m2_h = kgas/24*(CO2_mol_kg-co2_eq_mol_kg)*10^6) #flux in mmol CO2/m2/h
 
@@ -356,7 +354,7 @@ dk_tot %>%
 #enhed er gigagram
 
 vl_budget <- vl_upscale_tot %>% 
-  unnest() %>% 
+  unnest(cols = c(data)) %>% 
   group_by(Size) %>% 
   summarise("1st Qu." = quantile(flux_gigagram, 0.25), 
             Median = median(flux_gigagram), 
@@ -364,7 +362,7 @@ vl_budget <- vl_upscale_tot %>%
             "3rd Qu." = quantile(flux_gigagram, 0.75)) 
 
 so_budget <- so_upscale_tot %>% 
-  unnest() %>% 
+  unnest(cols = c(data)) %>% 
   group_by(Size) %>%  
   summarise("1st Qu." = quantile(flux_gigagram, 0.25), 
             Median = median(flux_gigagram), 
