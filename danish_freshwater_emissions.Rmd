@@ -1,0 +1,291 @@
+---
+title: "vand_og_jord"
+author: "Kenneth"
+date: "2020 M02 5"
+output: html_document
+---
+
+## Rawdata
+
+```{r setup, include=FALSE}
+
+#knitr::opts_chunk$set(cache=TRUE)
+
+library(tidyverse);library(lubridate);library(sf);library(seacarb)
+library(knitr);library(kableExtra);library(lwgeom);library(patchwork)
+
+set.seed(9999)
+
+data_path <- paste0(getwd(), "/data/")
+rawdata_path <- paste0(getwd(), "/rawdata/")
+
+dk_epsg <- 3044 #25832
+
+time_start <- ymd("1989-01-01")
+time_end <- ymd("2010-12-31")
+
+dk_carb <- readRDS(paste0(data_path, "dk_carb.rds")) %>% 
+  tbl_df() %>% 
+  filter(between(date, time_start, time_end)) %>% 
+  filter(alk > 0 & alk < 10, 
+         wtr < 40,
+         ph > 5.4,
+         pCO2_uatm < 40000)
+         
+#vl og so pco2
+vl_pco2 <- dk_carb %>%
+  filter(system == "vl") %>% 
+  st_as_sf(coords = c("x_coord", "y_coord"), crs = dk_epsg)
+
+so_pco2 <- dk_carb %>%
+  filter(system == "so") %>%
+  select(-q_m3_s) %>% 
+  st_as_sf(coords = c("x_coord", "y_coord"), crs = dk_epsg)
+
+#dk climate grid 20x20 km 1990-2010
+wnd_grid <- read.delim(paste0(rawdata_path, "tr12-10_20x20km/daily_20x20km_wind speed_1989-2010.txt"),
+                       sep = ";", stringsAsFactors = FALSE) %>%
+  tbl_df() %>%
+  rename(wnd = X20.20km_Mean_wind_speed_.m.s., 
+         dmi_cell = gridcelle) %>%
+  mutate(date = ymd(paste(year, month, day, sep = "-"))) %>%
+  select(date, dmi_cell, utm_zone, eastings, northings, wnd)
+
+wnd_grid_sf <- wnd_grid %>%
+  select(dmi_cell, eastings, northings) %>%
+  distinct() %>%
+  st_as_sf(coords = c("eastings", "northings"), crs = 23032) %>% 
+  st_transform(dk_epsg)
+
+#dk lakes
+lakes <- readRDS(paste0(data_path, "lakes.rds"))
+
+#dk lakes pco2 med vind og areal
+so_pco2_sf <- so_pco2 %>%
+  st_join(wnd_grid_sf, join = st_nearest_feature) %>%
+  st_join(lakes) %>% #nogen punkter joiner med flere polygoner, fjernes for at undgå dobbelt co2 flux data
+  left_join(wnd_grid[, c("date", "dmi_cell", "wnd")])
+
+#dk stream
+streams_drop <- readRDS(paste0(data_path, "streams_slope.rds")) %>% 
+  st_as_sf() #%>% 
+  #filter(length > 10 & !is.na(slope))
+
+#dk stream med slope
+vl_pco2_sf <- vl_pco2 %>%
+    st_join(streams_drop, join = st_nearest_feature)
+
+```
+
+## Emissions from lakes
+
+```{r lakes}
+lake_size_cats <- c(0, 10^3, 10^4, 10^5, 10^6, 10^7, 10^8)
+
+lake_size <- lakes %>% 
+  st_set_geometry(NULL) %>% 
+  mutate(sizecat = cut(area, breaks = lake_size_cats, right = FALSE)) %>% 
+  group_by(sizecat) %>% 
+  summarise(n = n(), total_area = sum(area))
+
+so_pco2_sizecat <- so_pco2_sf %>% 
+  mutate(sizecat = cut(area, breaks = lake_size_cats, right = FALSE)) %>% 
+  st_set_geometry(NULL)
+
+so_co2_flux <- so_pco2_sizecat %>% 
+  mutate(k600_cole = 2.07 + 0.215 * wnd^1.7, 
+         k600_crusius_1 = 0.228 * wnd^2.2 + 0.168, 
+         k600_crusius_2 = ifelse(wnd < 3.7, 0.72*wnd, 4.33*wnd-13.3),
+         k600_vachon_1 = 1.41 + 2.58 * wnd,
+         k600_vachon_2 = 2.51 + 1.48 * wnd + 0.39 * wnd * log10(area),
+         sc = 1742 + -91.24*wtr + 2.208*wtr^2 + -0.0219*wtr^3,
+         k600_mean = (k600_cole + k600_crusius_1 + k600_crusius_2 + k600_vachon_1 + k600_vachon_2)/5,
+         kgas = (sc/600)^-0.5 * k600_mean) %>%  #k600 og kgas i cm/h
+  mutate(co2_eq_mol_kg = 400 * 10^-6 * K0(S = 0, T = wtr)) %>% 
+  mutate(co2_flux_mmol_m2_h = kgas/100*(CO2_mol_kg-co2_eq_mol_kg)*10^6) #%>%  #flux in mmol CO2/m2/h
+
+so_co2_flux_sizeclass <- so_co2_flux %>% 
+  group_by(sizecat) %>% 
+  summarise(n_samples = n(), 
+            n_sites = length(unique(site_id)), 
+            mean = mean(co2_flux_mmol_m2_h), 
+            sd = sd(co2_flux_mmol_m2_h)) %>% 
+  na.omit()
+
+so_upscale <- so_co2_flux_sizeclass %>% 
+  left_join(lake_size) %>% 
+  mutate(flux_rnorm = map2(mean, sd, rnorm, n = 1000)) %>% 
+  unnest(flux_rnorm) %>% 
+  mutate(flux_year = flux_rnorm * total_area * 24 * 365 * 10^-3,
+         flux_gigagram = flux_year * 12 * 10^-9)  #flux_year = mol/år, flux_gigagram = gigagram C/år
+  
+so_upscale_sizecat <- so_upscale %>% 
+  select(sizecat, flux_gigagram) %>% 
+  group_by(sizecat) %>% 
+  summarise(q_05 = quantile(flux_gigagram, 0.05),
+            q_25 = quantile(flux_gigagram, 0.25),
+            q_50 = quantile(flux_gigagram, 0.5),
+            q_75 = quantile(flux_gigagram, 0.75),
+            q_95 = quantile(flux_gigagram, 0.95),
+            mean = mean(flux_gigagram))
+
+so_upscale_total <- so_upscale %>% 
+  select(sizecat, flux_gigagram) %>% 
+  add_column(id = rep(1:1000, 6)) %>% 
+  spread(sizecat, flux_gigagram) %>% 
+  mutate(flux_gigagram_sum = rowSums(.[-1])) %>% 
+  summarise(q_05 = quantile(flux_gigagram_sum, 0.05),
+            q_25 = quantile(flux_gigagram_sum, 0.25),
+            q_50 = quantile(flux_gigagram_sum, 0.5),
+            q_75 = quantile(flux_gigagram_sum, 0.75),
+            q_95 = quantile(flux_gigagram_sum, 0.95),
+            mean = mean(flux_gigagram_sum))
+
+```
+
+## Emissions from streams
+
+```{r streams, echo=FALSE}
+vl_area <- tibble(sizecat = c("small", "medium", "large"), 
+                  width = c("0-2.5 m", "2.5-12 m", ">12 m"), 
+                  length = c(45480, 16600, 2660),
+                  avg_width = c(1.23, 5.15, 16.61),
+                  area = length*1000*avg_width)
+
+vl_pco2_hydro <- vl_pco2_sf %>% 
+  st_set_geometry(NULL) %>% 
+  mutate(v = 0.19*q_m3_s^0.285, 
+         d = 0.4*q_m3_s^0.294, 
+         w = 12.88*q_m3_s^0.423, 
+         fr = v/(9.82*d)^0.5)
+
+vl_stat_sizecat <- vl_pco2_hydro %>% 
+  group_by(site_id) %>% 
+  summarise(site_id_w = mean(w, na.rm = TRUE)) %>% 
+  mutate(sizecat = cut(site_id_w, breaks = c(0, 2.5, 12, 100), 
+                       right = FALSE, labels = c("small", "medium", "large"))) %>% 
+  na.omit()
+
+vl_sizecat_area <- vl_stat_sizecat %>% 
+  group_by(sizecat) %>% 
+  summarise(sizecat_w = mean(site_id_w, na.rm = TRUE)) %>% 
+  left_join(vl_area)
+
+vl_co2_flux <- vl_pco2_hydro %>% 
+  left_join(vl_stat_sizecat) %>% 
+  mutate(sc = 1742 + -91.24*wtr + 2.208*wtr^2 + -0.0219*wtr^3,
+         k600_5 = v*slope*2841+2.02) %>% #k600 i m/d
+  mutate(kgas = (sc/600)^-0.5*k600_5) %>% #KUN EQ. 5
+  mutate(co2_eq_mol_kg = 400*10^-6*K0(S = 0, T = wtr)) %>% 
+  mutate(co2_flux_mmol_m2_h = kgas/24*(CO2_mol_kg-co2_eq_mol_kg)*10^6) #flux in mmol CO2/m2/h
+
+vl_co2_flux_sizeclass <- vl_co2_flux %>% 
+  group_by(sizecat) %>% 
+  summarise(n_samples = n(), 
+            n_sites = length(unique(site_id)), 
+            mean = mean(co2_flux_mmol_m2_h, na.rm = TRUE), 
+            sd = sd(co2_flux_mmol_m2_h, na.rm = TRUE)) %>% 
+  na.omit()
+
+vl_upscale <- vl_co2_flux_sizeclass %>% 
+  left_join(vl_sizecat_area) %>% 
+  mutate(flux_rnorm = map2(mean, sd, rnorm, n = 1000)) %>%
+  unnest(flux_rnorm) %>% 
+  mutate(flux_year = flux_rnorm * area * 24 * 365 * 10^-3,
+         flux_gigagram = flux_year * 12 * 10^-9)  #flux_year = mol/år, flux_gigagram = giga C/år
+  
+vl_upscale_sizecat <- vl_upscale %>% 
+  select(sizecat, flux_gigagram) %>% 
+  group_by(sizecat) %>% 
+  summarise(q_05 = quantile(flux_gigagram, 0.05),
+            q_25 = quantile(flux_gigagram, 0.25),
+            q_50 = quantile(flux_gigagram, 0.5),
+            q_75 = quantile(flux_gigagram, 0.75),
+            q_95 = quantile(flux_gigagram, 0.95),
+            mean = mean(flux_gigagram))
+
+vl_upscale_total <- vl_upscale %>% 
+  select(sizecat, flux_gigagram) %>% 
+  add_column(id = rep(1:1000, 3)) %>% 
+  spread(sizecat, flux_gigagram) %>% 
+  mutate(flux_gigagram_sum = rowSums(.[-1])) %>% 
+  summarise(q_05 = quantile(flux_gigagram_sum, 0.05),
+            q_25 = quantile(flux_gigagram_sum, 0.25),
+            q_50 = quantile(flux_gigagram_sum, 0.5),
+            q_75 = quantile(flux_gigagram_sum, 0.75),
+            q_95 = quantile(flux_gigagram_sum, 0.95),
+            mean = mean(flux_gigagram_sum))
+
+```
+
+## Total emissions
+
+```{r total}
+#Combined table for lake and streams
+vl_so_samples_sites <- bind_rows(add_column(vl_co2_flux_sizeclass, system = "stream"), 
+                                 add_column(so_co2_flux_sizeclass, system = "lake")) %>% 
+  select(sizecat, system, n_sites, n_samples)
+
+upscale_total <- bind_rows(bind_rows(add_column(so_upscale_sizecat, system = "lake"), 
+                                     add_column(so_upscale_total, sizecat = "total", system = "lake")),
+                           bind_rows(add_column(vl_upscale_sizecat, system = "stream"), 
+                                     add_column(vl_upscale_total, sizecat = "total", system = "stream"))) %>% 
+  left_join(vl_so_samples_sites) %>% 
+  add_row(mean = vl_upscale_total$mean + so_upscale_total$mean,
+          q_50 = vl_upscale_total$q_50 + so_upscale_total$q_50,
+          sizecat = "grand total") 
+  
+
+#Plot of density distributions of pco2 and flux intensities
+so_vl_flux_rates <- bind_rows(so_co2_flux, vl_co2_flux) %>% 
+  select(site_id, system, sizecat, co2_flux_mmol_m2_h, pCO2_uatm) %>% 
+  gather(variable, value, co2_flux_mmol_m2_h, pCO2_uatm)
+
+sizecat_labels <- data.frame(sizecat = sort(unique(so_vl_flux_rates$sizecat)),
+                             label = c("0-10^3^~m^2^", "10^3^-10^4^~m^2^", "10^4^-10^5^~m^2^", 
+                                       "10^5^-10^6^~m^2^", "10^6^-10^7^~m^2^", "10^7^-10^8^~m^2^",
+                                       "'>'*12~m", "2.5-12~m", "0-2.5~m")) %>% 
+  mutate(label = factor(label, levels = rev(c("0-2.5~m", "2.5-12~m", "'>'*12~m",
+                                              "0-10^3^~m^2^", "10^3^-10^4^~m^2^", "10^4^-10^5^~m^2^",
+                                              "10^5^-10^6^~m^2^", "10^6^-10^7^~m^2^", "10^7^-10^8^~m^2^"))))
+
+lab_expressions <- rev(c(expression(0-2.5~m), expression(2.5-12~m), expression(">12"~m),
+                     expression(0-10^3~m^2), expression(10^3-10^4~m^2), 
+                     expression(10^4-10^5~m^2), expression(10^5-10^6~m^2),
+                     expression(10^6-10^7~m^2), expression(10^7-10^8~m^2)))
+
+library(ggridges)
+
+ridge_pressure <- so_vl_flux_rates %>% 
+  left_join(sizecat_labels) %>% 
+  na.omit() %>% 
+  filter(variable != "co2_flux_mmol_m2_h") %>% 
+  ggplot(aes(value, label, fill = stat(x))) +
+  geom_vline(xintercept = 410, linetype = 1, col = "black", size = 1)+
+  geom_density_ridges_gradient(scale = 3)+
+  scale_fill_viridis_c(direction = -1, option = "B")+
+  scale_y_discrete(labels = lab_expressions)+
+  xlim(xlim = c(0, 20000))+
+  theme_ridges()+
+  xlab(expression("CO"[2]~partialtryk~"("*mu*"atm)"))+
+  ylab("Størrelseskategori")+
+  guides(fill = guide_colorbar(title = NULL, barwidth = unit(8, "mm"), barheight = unit(40, "mm"), ticks = FALSE))
+
+ridge_flux <- so_vl_flux_rates %>% 
+  left_join(sizecat_labels) %>% 
+  na.omit() %>% 
+  filter(variable == "co2_flux_mmol_m2_h") %>% 
+  ggplot(aes(value, label, fill = stat(x))) +
+  geom_density_ridges_gradient(scale = 3)+
+  scale_fill_viridis_c(direction = -1)+
+  scale_y_discrete(labels = lab_expressions)+
+  xlim(xlim = c(-10, 50))+
+  theme_ridges()+
+  xlab(expression("CO"[2]~flux~"("*mmol~m^{-2}~h^{-1}*")"))+
+  ylab("Størrelseskategori")+
+  guides(fill = guide_colorbar(title = NULL, barwidth = unit(8, "mm"), barheight = unit(40, "mm"), ticks = FALSE))
+
+ggsave("ridge_pressure_flux.png", ridge_pressure/ridge_flux, width = 200, height = 200, units = "mm")
+
+```
+
