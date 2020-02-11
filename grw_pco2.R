@@ -14,8 +14,7 @@ alk_ph_sf <- grw_ph_alk %>%
   filter(!is.na(XUTM32EUREF89), !is.na(YUTM32EUREF89),
          datetime >= ymd_hm("1990-01-01 00:00"),
          AMOUNT > 0, 
-         UNIT %in% c(3, 8), 
-         TOP < 30 | BOTTOM < 30) %>%
+         UNIT %in% c(3, 8)) %>%
   group_by(BOREHOLENO, XUTM32EUREF89, YUTM32EUREF89, LONG_TEXT) %>%
   summarise(value = mean(AMOUNT)) %>%
   rename(variable = LONG_TEXT) %>% 
@@ -25,7 +24,8 @@ alk_sf <- alk_ph_sf %>%
   filter(variable == "Alkalinitet,total TA")
 
 ph_sf <- alk_ph_sf %>% 
-  filter(variable == "pH")
+  filter(variable == "pH") %>% 
+  sample_n(nrow(alk_sf))
 
 dk_polygon <- getData(country = "DNK", level = 0, path = paste0(getwd(), "/data")) %>% 
   st_as_sf() %>% 
