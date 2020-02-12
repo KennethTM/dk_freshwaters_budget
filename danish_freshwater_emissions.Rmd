@@ -11,7 +11,7 @@ output: html_document
 
 #knitr::opts_chunk$set(cache=TRUE)
 
-library(tidyverse);library(lubridate);library(sf);library(seacarb)
+library(raster);library(tidyverse);library(lubridate);library(sf);library(seacarb)
 library(knitr);library(kableExtra);library(lwgeom);library(patchwork)
 
 set.seed(9999)
@@ -286,6 +286,42 @@ ridge_flux <- so_vl_flux_rates %>%
   guides(fill = guide_colorbar(title = NULL, barwidth = unit(8, "mm"), barheight = unit(40, "mm"), ticks = FALSE))
 
 ggsave("ridge_pressure_flux.png", ridge_pressure/ridge_flux, width = 200, height = 200, units = "mm")
+
+```
+
+## Grundvands kemi plot
+```{r}
+#Read grw rasters
+grw_list <- readRDS(paste0(getwd(), "/data/grw_alk_ph_pco2_rasters.rds"))
+grw_df <- lapply(grw_list, function(rast){as.data.frame(rast, xy = TRUE)})
+
+alk <- ggplot(grw_df$alk, aes(x, y, fill = layer))+
+  geom_raster()+
+  scale_fill_viridis_c(name = expression("Alkalinitet (meq "*L^{-1}*")"), na.value = "white", breaks = seq(0, 10, 2), direction = -1)+
+  theme_void()+
+  coord_equal()+
+  theme(legend.position = c(0.8, 0.7), legend.justification = "left")
+
+ph <- ggplot(grw_df$ph, aes(x, y, fill = layer))+
+  geom_raster()+
+  scale_fill_viridis_c(name = "pH", na.value = "white", breaks = seq(4, 8, 0.5), direction = -1)+
+  theme_void()+
+  coord_equal()+
+  theme(legend.position = c(0.8, 0.7), legend.justification = "left")
+
+pco2 <- grw_df$pco2 %>% 
+  mutate(bin = cut(layer, breaks = c(seq(0, 25000, 5000), 120000),
+                   labels = c("0-5000", "5000-10000", "10000-15000", "15000-20000", "20000-25000", ">25000"))) %>% 
+  na.omit() %>% 
+  ggplot(aes(x, y, fill = bin))+
+  geom_raster()+
+  #scale_fill_viridis_c(name = "pH", na.value = "white", option = "C", breaks = seq(0, 40000, 10000), direction = -1)+
+  scale_fill_viridis_d(name = expression("pCO2 ("*mu*atm*")"), na.value = "white", option = "C", direction = -1)+
+  theme_void()+
+  coord_equal()+
+  theme(legend.position = c(0.8, 0.7), legend.justification = "left")
+
+ggsave("grw_alk_ph_pco2.png", alk/ph/pco2, width = 129, height = 200, units = "mm")
 
 ```
 
