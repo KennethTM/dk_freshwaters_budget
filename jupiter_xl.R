@@ -67,6 +67,10 @@ saveRDS(list(alk_sf, ph_sf), "grw_ph_alk.rds")
 
 
 
+####
+
+
+grw_ph_alk <- readRDS("grw_ph_alk.rds")
 
 library(raster)
 library(fields)
@@ -77,13 +81,13 @@ dk_polygon <- getData(country = "DNK", level = 0) %>%
 
 dk_raster_empthy <- raster(dk_polygon, res = c(1000, 1000))
 
-alk_tps <- Tps(st_coordinates(alk_sf), alk_sf$alk)
+alk_tps <- Tps(st_coordinates(grw_ph_alk[[1]]), grw_ph_alk[[1]]$alk)
 
 alk_raster <- interpolate(dk_raster_empthy, alk_tps)
 
 alk_raster_mask <- mask(alk_raster, as(dk_polygon, "Spatial"))
 
-ph_tps <- Tps(st_coordinates(ph_sf), ph_sf$ph)
+ph_tps <- Tps(st_coordinates(grw_ph_alk[[2]]), grw_ph_alk[[2]]$ph)
 
 ph_raster <- interpolate(dk_raster_empthy, ph_tps)
 
@@ -93,4 +97,6 @@ library(seacarb)
 
 pco2_raster <- dk_raster_empthy
 
-pco2_raster[] <- carb(flag = 8, var1 = ph_raster_mask[], var2 = alk_raster_mask[], S = 0, T = 10)
+pco2_raster[] <- carb(flag = 8, var1 = ph_raster_mask[], var2 = alk_raster_mask[]/1000, S = 0, T = 10)
+
+saveRDS(list(alk_raster_mask, ph_raster_mask, pco2_raster), "alk_ph_pco2_rasters.rds")
