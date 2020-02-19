@@ -41,6 +41,8 @@ alk_raster_mask <- mask(alk_raster, as(dk_polygon, "Spatial"))
 
 plot(alk_raster_mask)
 
+alk_raster_mask[alk_raster_mask<0] <- 0.01
+
 ph_tps <- Tps(st_coordinates(ph_sf), ph_sf$value)
 
 ph_raster <- interpolate(dk_raster_empthy, ph_tps)

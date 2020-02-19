@@ -12,7 +12,7 @@ output: html_document
 #knitr::opts_chunk$set(cache=TRUE)
 
 library(raster);library(tidyverse);library(lubridate);library(sf);library(seacarb)
-library(knitr);library(kableExtra);library(lwgeom);library(patchwork)
+library(knitr);library(kableExtra);library(lwgeom);library(patchwork);library(openxlsx)
 
 set.seed(9999)
 
@@ -230,12 +230,14 @@ upscale_total <- bind_rows(bind_rows(add_column(so_upscale_sizecat, system = "la
                                      add_column(so_upscale_total, sizecat = "total", system = "lake")),
                            bind_rows(add_column(vl_upscale_sizecat, system = "stream"), 
                                      add_column(vl_upscale_total, sizecat = "total", system = "stream"))) %>% 
-  left_join(vl_so_samples_sites) %>% 
-  add_row(mean = vl_upscale_total$mean + so_upscale_total$mean,
-          q_50 = vl_upscale_total$q_50 + so_upscale_total$q_50,
-          sizecat = "grand total") 
-  
+  left_join(vl_so_samples_sites) 
 
+write.xlsx(upscale_total, "co2_budget_table.xlsx")
+```
+
+## Density plot of partial pressure and fluxes
+
+```{r}
 #Plot of density distributions of pco2 and flux intensities
 so_vl_flux_rates <- bind_rows(so_co2_flux, vl_co2_flux) %>% 
   select(site_id, system, sizecat, co2_flux_mmol_m2_h, pCO2_uatm) %>% 
@@ -249,10 +251,10 @@ sizecat_labels <- data.frame(sizecat = sort(unique(so_vl_flux_rates$sizecat)),
                                               "0-10^3^~m^2^", "10^3^-10^4^~m^2^", "10^4^-10^5^~m^2^",
                                               "10^5^-10^6^~m^2^", "10^6^-10^7^~m^2^", "10^7^-10^8^~m^2^"))))
 
-lab_expressions <- rev(c(expression(0-2.5~m), expression(2.5-12~m), expression(">12"~m),
-                     expression(0-10^3~m^2), expression(10^3-10^4~m^2), 
-                     expression(10^4-10^5~m^2), expression(10^5-10^6~m^2),
-                     expression(10^6-10^7~m^2), expression(10^7-10^8~m^2)))
+lab_expressions <- rev(c(expression(Vandløb~0-2.5~m), expression(Vandløb~2.5-12~m), expression(Vandløb~">12"~m),
+                     expression(Søer~0-10^3~m^2), expression(Søer~10^3-10^4~m^2), 
+                     expression(Søer~10^4-10^5~m^2), expression(Søer~10^5-10^6~m^2),
+                     expression(Søer~10^6-10^7~m^2), expression(Søer~10^7-10^8~m^2)))
 
 library(ggridges)
 
@@ -261,15 +263,16 @@ ridge_pressure <- so_vl_flux_rates %>%
   na.omit() %>% 
   filter(variable != "co2_flux_mmol_m2_h") %>% 
   ggplot(aes(value, label, fill = stat(x))) +
-  geom_vline(xintercept = 410, linetype = 1, col = "black", size = 1)+
+  geom_vline(xintercept = 410, linetype = 1, col = "grey", size = 1)+
   geom_density_ridges_gradient(scale = 3)+
   scale_fill_viridis_c(direction = -1, option = "B")+
   scale_y_discrete(labels = lab_expressions)+
-  xlim(xlim = c(0, 20000))+
+  xlim(xlim = c(0, 15000))+
   theme_ridges()+
   xlab(expression("CO"[2]~partialtryk~"("*mu*"atm)"))+
   ylab("Størrelseskategori")+
-  guides(fill = guide_colorbar(title = NULL, barwidth = unit(8, "mm"), barheight = unit(40, "mm"), ticks = FALSE))
+  guides(fill = guide_colorbar(title = NULL, barwidth = unit(8, "mm"), barheight = unit(40, "mm"), ticks = FALSE))+
+  theme(axis.text.y = element_text(hjust = 0))
 
 ridge_flux <- so_vl_flux_rates %>% 
   left_join(sizecat_labels) %>% 
@@ -279,15 +282,16 @@ ridge_flux <- so_vl_flux_rates %>%
   geom_density_ridges_gradient(scale = 3)+
   scale_fill_viridis_c(direction = -1)+
   scale_y_discrete(labels = lab_expressions)+
-  xlim(xlim = c(-10, 50))+
+  scale_x_continuous(breaks=seq(-5, 25, 5), limits = c(-5, 25))+
   theme_ridges()+
   xlab(expression("CO"[2]~flux~"("*mmol~m^{-2}~h^{-1}*")"))+
   ylab("Størrelseskategori")+
-  guides(fill = guide_colorbar(title = NULL, barwidth = unit(8, "mm"), barheight = unit(40, "mm"), ticks = FALSE))
+  guides(fill = guide_colorbar(title = NULL, barwidth = unit(8, "mm"), barheight = unit(40, "mm"), ticks = FALSE))+
+  theme(axis.text.y = element_text(hjust = 0))
 
-ggsave("ridge_pressure_flux.png", ridge_pressure/ridge_flux, width = 200, height = 200, units = "mm")
-
+ggsave("ridge_pressure_flux.png", ridge_pressure/ridge_flux, width = 174, height = 200, units = "mm")
 ```
+
 
 ## Grundvands kemi plot
 ```{r}
@@ -297,14 +301,17 @@ grw_df <- lapply(grw_list, function(rast){as.data.frame(rast, xy = TRUE)})
 
 alk <- ggplot(grw_df$alk, aes(x, y, fill = layer))+
   geom_raster()+
-  scale_fill_viridis_c(name = expression("Alkalinitet (meq "*L^{-1}*")"), na.value = "white", breaks = seq(0, 10, 2), direction = -1)+
+  scale_fill_viridis_c(name = expression("Alkalinitet (meq "*L^{-1}*")"), na.value = "white", 
+                       breaks = seq(0, 10, 2), direction = 1, limits = c(0, 10))+
   theme_void()+
   coord_equal()+
   theme(legend.position = c(0.8, 0.7), legend.justification = "left")
 
+
 ph <- ggplot(grw_df$ph, aes(x, y, fill = layer))+
   geom_raster()+
-  scale_fill_viridis_c(name = "pH", na.value = "white", breaks = seq(4, 8, 0.5), direction = -1)+
+  scale_fill_viridis_c(name = "pH", na.value = "white", breaks = seq(4, 8, 0.5), 
+                       limits = c(6, 8), direction = 1, option = "C")+
   theme_void()+
   coord_equal()+
   theme(legend.position = c(0.8, 0.7), legend.justification = "left")
@@ -313,15 +320,69 @@ pco2 <- grw_df$pco2 %>%
   mutate(bin = cut(layer, breaks = c(seq(0, 25000, 5000), 120000),
                    labels = c("0-5000", "5000-10000", "10000-15000", "15000-20000", "20000-25000", ">25000"))) %>% 
   na.omit() %>% 
-  ggplot(aes(x, y, fill = bin))+
+  ggplot(aes(x, y, fill = layer))+
   geom_raster()+
-  #scale_fill_viridis_c(name = "pH", na.value = "white", option = "C", breaks = seq(0, 40000, 10000), direction = -1)+
-  scale_fill_viridis_d(name = expression("pCO2 ("*mu*atm*")"), na.value = "white", option = "C", direction = -1)+
+  scale_fill_viridis_c(name = expression("pCO2 ("*mu*atm*")"), na.value = "white", option = "E", 
+                       breaks = seq(0, 40000, 10000), direction = 1, limits = c(0, 40000))+
+  #scale_fill_viridis_d(name = expression("pCO2 ("*mu*atm*")"), na.value = "white", option = "C", direction = -1)+
   theme_void()+
   coord_equal()+
   theme(legend.position = c(0.8, 0.7), legend.justification = "left")
 
 ggsave("grw_alk_ph_pco2.png", alk/ph/pco2, width = 129, height = 200, units = "mm")
+
+```
+
+## Oplande fra tidligere
+```{r}
+#data indlæst fra tidligere
+cowi_watersheds <- readRDS("C:/Users/kenne/Documents/DK DEM temp/Arealudnyttelse i opland/watershed_stats.rds")
+
+cowi_pco2 <- readRDS("C:/Users/kenne/Documents/DK DEM temp/vl_pco2.rds") %>% 
+  mutate(month = month(date),
+         vl_id = factor(ObservationsStedNr)) 
+
+cowi_dic_trans <- cowi_pco2 %>% 
+  mutate(DIC_trans_mol_s = DIC_mol_kg*1000*Q_m3_s) %>% 
+  group_by(vl_id) %>% 
+  summarise(DIC_trans_mol_s = mean(DIC_trans_mol_s, na.rm = TRUE), n = n()) %>% 
+  na.omit() %>% 
+  left_join(cowi_watersheds %>% 
+              select(vl_id, area, npp_mean, strahler_order)) %>% 
+  na.omit() %>% 
+  mutate(npp_mean_mol_watershed_year = npp_mean/12*area,
+         DIC_trans_mol_year = DIC_trans_mol_s*60*60*24*365) 
+
+cowi_dic_trans %>% 
+  ggplot(aes(npp_mean_mol_watershed_year, DIC_trans_mol_year))+
+  geom_smooth(method = "lm", col = "black")+
+  geom_point(aes(col = log10(area))) +
+  scale_x_log10(breaks = scales::trans_breaks("log10", function(x) 10^x),
+                labels = scales::trans_format("log10", scales::math_format(10^.x)))+
+  scale_y_log10(breaks = scales::trans_breaks("log10", function(x) 10^x),
+                labels = scales::trans_format("log10", scales::math_format(10^.x)))+
+  scale_color_viridis_c(name = expression(log[10]*"(oplandsareal [m"^{2}*"])"),
+                        guide = guide_colorbar(direction = "horizontal", title.position = "top"))+
+  theme_classic()+
+  ylab("DIC transport (mol/år)")+
+  xlab("Terrestrisk netto primærproduktion (mol/år)")+
+  theme(axis.text = element_text(colour = "black"), legend.position = c(0.8, 0.25))
+
+ggsave("dic_trans_terr_npp.png", width = 129, height = 90, units = "mm")
+
+# cowi_pco2_slope <- cowi_pco2 %>% 
+#   group_by(vl_id) %>% 
+#   summarise(pco2_mean = mean(pco2_uatm, na.rm = TRUE), n = n()) %>% 
+#   na.omit() %>% 
+#   left_join(cowi_watersheds %>% 
+#               select(vl_id, slope_mean, area)) %>% 
+#   na.omit()
+# 
+# cowi_pco2_slope %>% 
+#   ggplot(aes(slope_mean, pco2_mean))+
+#   geom_point()+
+#   geom_smooth()
+  
 
 ```
 
