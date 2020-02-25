@@ -1,9 +1,9 @@
 library(data.table);library(seacarb)
 
-#data downloaded fra odaforalle
+#Data downloaded from https://odaforalle.au.dk/
 rawdata_path <- paste0(getwd(), "/rawdata/")
 
-#vandløb
+#Streams
 dk_chem_df <- fread(paste0(rawdata_path, "vl_vandkemi.csv"), encoding = "UTF-8")
 
 dk_chem_df_clean <- dk_chem_df[,.(site_id = ObservationsStedNr, x_coord = Xutm_Euref89_Zone32, y_coord = Yutm_Euref89_Zone32,
@@ -29,7 +29,7 @@ dk_all_clean <- dk_all_wide[, .(site_id, date,
                                 sys_coord = 'EUREF89_UTMZONE32',
                                 system = "vl")]
 
-#sø
+#Lake
 dk_chem_so <- fread(paste0(rawdata_path, "so_vandkemi.csv"), dec = ",")
 dk_profil_so <- fread(paste0(rawdata_path, "so_profil.csv"), dec = ",")
 
@@ -58,7 +58,7 @@ dk_all_clean_so <- dk_profil_so_clean_wide[dk_chem_so_clean_wide][, .(site_id, d
                                                                       sys_coord = 'EUREF89_UTMZONE32',
                                                                       system = "so")]
 
-#vandløb og sø samlet, beregn pco2
+#Stream and lakes, calculate pCO2 and DIC
 dk_samlet <- rbindlist(list(dk_all_clean, dk_all_clean_so), use.names = TRUE)
 
 dk_samlet_na <- na.omit(dk_samlet)
@@ -73,7 +73,7 @@ dk_samlet_carb <- cbind(dk_samlet_na, dk_carb_sub)
 
 setkey(dk_samlet_carb, system, site_id, date)
 
-#vandløb discharge 
+#Stream discharge 
 dk_vl_q <- fread(paste0(rawdata_path, "vl_discharge.csv"), dec = ",")
 
 dk_vl_q_sub <- dk_vl_q[, .(site_id = ObservationsStedNr,
@@ -85,5 +85,5 @@ setkey(dk_vl_q_sub, system, site_id, date)
 
 dk_samlet_carb_with_q <- dk_vl_q_sub[dk_samlet_carb]
 
-#save to file
+#Save to file
 saveRDS(dk_samlet_carb_with_q, paste0(getwd(), "/data/", "dk_carb.rds"))

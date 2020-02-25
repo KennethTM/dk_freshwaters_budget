@@ -3,7 +3,7 @@ library(tidyverse)
 library(lubridate)
 library(sf)
 
-#Connect to local copy of GEUS jupiter xl
+#Connect to local copy of GEUS jupiter xl database
 con <- DBI::dbConnect(odbc::odbc(), 
                       Driver = "SQL Server", 
                       Server = "localhost\\SQLEXPRESS", 

@@ -1,6 +1,6 @@
 ---
-title: "vand_og_jord"
-author: "Kenneth"
+title: "Popular science article in danish (Vand & Jord) on the danish freshwater carbon budget"
+author: "Kenneth Thorø Martinsen"
 date: "2020 M02 5"
 output: html_document
 ---
@@ -18,6 +18,7 @@ set.seed(9999)
 
 data_path <- paste0(getwd(), "/data/")
 rawdata_path <- paste0(getwd(), "/rawdata/")
+fig_path <- paste0(getwd(), "/figures/")
 
 dk_epsg <- 3044 #25832
 
@@ -32,7 +33,7 @@ dk_carb <- readRDS(paste0(data_path, "dk_carb.rds")) %>%
          ph > 5.4,
          pCO2_uatm < 40000)
          
-#vl og so pco2
+#Stream and lake pco2
 vl_pco2 <- dk_carb %>%
   filter(system == "vl") %>% 
   st_as_sf(coords = c("x_coord", "y_coord"), crs = dk_epsg)
@@ -42,7 +43,7 @@ so_pco2 <- dk_carb %>%
   select(-q_m3_s) %>% 
   st_as_sf(coords = c("x_coord", "y_coord"), crs = dk_epsg)
 
-#dk climate grid 20x20 km 1990-2010
+#Denmark climate grid 20x20 km 1990-2010 downloaded from DMI
 wnd_grid <- read.delim(paste0(rawdata_path, "tr12-10_20x20km/daily_20x20km_wind speed_1989-2010.txt"),
                        sep = ";", stringsAsFactors = FALSE) %>%
   tbl_df() %>%
@@ -57,21 +58,21 @@ wnd_grid_sf <- wnd_grid %>%
   st_as_sf(coords = c("eastings", "northings"), crs = 23032) %>% 
   st_transform(dk_epsg)
 
-#dk lakes
+#Denmark lakes
 lakes <- readRDS(paste0(data_path, "lakes.rds"))
 
-#dk lakes pco2 med vind og areal
+#Denmark lakes pco2 with wind and area
 so_pco2_sf <- so_pco2 %>%
   st_join(wnd_grid_sf, join = st_nearest_feature) %>%
   st_join(lakes) %>% #nogen punkter joiner med flere polygoner, fjernes for at undgå dobbelt co2 flux data
   left_join(wnd_grid[, c("date", "dmi_cell", "wnd")])
 
-#dk stream
+#Denmark streams
 streams_drop <- readRDS(paste0(data_path, "streams_slope.rds")) %>% 
   st_as_sf() #%>% 
   #filter(length > 10 & !is.na(slope))
 
-#dk stream med slope
+#Denmark streams with slope
 vl_pco2_sf <- vl_pco2 %>%
     st_join(streams_drop, join = st_nearest_feature)
 
@@ -192,7 +193,7 @@ vl_upscale <- vl_co2_flux_sizeclass %>%
   mutate(flux_rnorm = map2(mean, sd, rnorm, n = 1000)) %>%
   unnest(flux_rnorm) %>% 
   mutate(flux_year = flux_rnorm * area * 24 * 365 * 10^-3,
-         flux_gigagram = flux_year * 12 * 10^-9)  #flux_year = mol/år, flux_gigagram = giga C/år
+         flux_gigagram = flux_year * 12 * 10^-9)  #flux_year = mol/år, flux_gigagram = giga C/year
   
 vl_upscale_sizecat <- vl_upscale %>% 
   select(sizecat, flux_gigagram) %>% 
@@ -230,9 +231,13 @@ upscale_total <- bind_rows(bind_rows(add_column(so_upscale_sizecat, system = "la
                                      add_column(so_upscale_total, sizecat = "total", system = "lake")),
                            bind_rows(add_column(vl_upscale_sizecat, system = "stream"), 
                                      add_column(vl_upscale_total, sizecat = "total", system = "stream"))) %>% 
-  left_join(vl_so_samples_sites) 
+  left_join(vl_so_samples_sites) %>% 
+  mutate(mean_label = paste0(round(mean, 1), " (", round(q_25, 1), " - ", round(q_75, 1), ")"),
+         site_sample_label = paste0(n_sites, "/", n_samples))
 
-write.xlsx(upscale_total, "co2_budget_table.xlsx")
+#Units in table is gigagram C per year
+
+write.xlsx(upscale_total, paste0(data_path, "co2_budget_table.xlsx"))
 ```
 
 ## Density plot of partial pressure and fluxes
@@ -278,24 +283,24 @@ ridge_flux <- so_vl_flux_rates %>%
   left_join(sizecat_labels) %>% 
   na.omit() %>% 
   filter(variable == "co2_flux_mmol_m2_h") %>% 
+  mutate(value = value*10^-3*12*24) %>% #change unit to g C/m2/day
   ggplot(aes(value, label, fill = stat(x))) +
   geom_density_ridges_gradient(scale = 3)+
-  scale_fill_viridis_c(direction = -1, limits = c(-5, 25), breaks = seq(-5, 25, 5))+
+  scale_fill_viridis_c(direction = -1, limits = c(-2, 8), breaks = seq(-2, 8, 2))+
   scale_y_discrete(labels = lab_expressions)+
-  scale_x_continuous(breaks=seq(-5, 25, 5), limits = c(-5, 25))+
+  scale_x_continuous(breaks=seq(-2, 8, 2), limits = c(-2, 8))+
   theme_ridges()+
-  xlab(expression("CO"[2]~flux~"("*mmol~m^{-2}~h^{-1}*")"))+
+  xlab(expression("CO"[2]~flux~"("*g~C~m^{-2}~d^{-1}*")"))+
   ylab("Størrelseskategori")+
   guides(fill = guide_colorbar(title = NULL, barwidth = unit(8, "mm"), barheight = unit(40, "mm"), ticks = FALSE))+
   theme(axis.text.y = element_text(hjust = 0))
 
-#ggsave("ridge_pressure_flux.png", ridge_pressure/ridge_flux, width = 174, height = 200, units = "mm")
+ggsave(paste0(fig_path, "ridge_pressure_flux.png"), ridge_pressure/ridge_flux, width = 174, height = 200, units = "mm")
 ```
-
 
 ## Grundvands kemi plot
 ```{r}
-#Read grw rasters
+#Read groundwater rasters
 grw_list <- readRDS(paste0(getwd(), "/data/grw_alk_ph_pco2_rasters.rds"))
 grw_df <- lapply(grw_list, function(rast){as.data.frame(rast, xy = TRUE)})
 
@@ -329,20 +334,22 @@ pco2 <- grw_df$pco2 %>%
   coord_equal()+
   theme(legend.position = c(0.8, 0.7), legend.justification = "left")
 
-#ggsave("grw_alk_ph_pco2.png", alk/ph/pco2, width = 129, height = 200, units = "mm")
+ggsave(paste0(fig_path, "grw_alk_ph_pco2.png"), alk/ph/pco2, width = 129, height = 200, units = "mm")
 
 ```
 
 ## Oplande fra tidligere
 ```{r}
-#data indlæst fra tidligere
-cowi_watersheds <- readRDS("C:/Users/kenne/Documents/DK DEM temp/Arealudnyttelse i opland/watershed_stats.rds")
+#Data read from previous project (Stream watersheds, COWIFonden) added to current directory
+watershed_proj_folder <- paste0(getwd(), "/watershed_proj/")
 
-cowi_pco2 <- readRDS("C:/Users/kenne/Documents/DK DEM temp/vl_pco2.rds") %>% 
+proj_watersheds <- readRDS(paste0(watershed_proj_folder, "watershed_stats.rds"))
+
+proj_pco2 <- readRDS(paste0(watershed_proj_folder,"vl_pco2.rds")) %>% 
   mutate(month = month(date),
          vl_id = factor(ObservationsStedNr)) 
 
-cowi_dic_trans <- cowi_pco2 %>% 
+proj_dic_trans <- proj_pco2 %>% 
   mutate(DIC_trans_mol_s = DIC_mol_kg*1000*Q_m3_s) %>% 
   group_by(vl_id) %>% 
   summarise(DIC_trans_mol_s = mean(DIC_trans_mol_s, na.rm = TRUE), n = n()) %>% 
@@ -353,7 +360,9 @@ cowi_dic_trans <- cowi_pco2 %>%
   mutate(npp_mean_mol_watershed_year = npp_mean/12*area,
          DIC_trans_mol_year = DIC_trans_mol_s*60*60*24*365) 
 
-cowi_dic_trans %>% 
+proj_dic_trans %>% 
+  mutate(npp_mean_g_C_watershed_year = npp_mean_mol_watershed_year*12,
+         DIC_trans_g_C_year = DIC_trans_mol_year*12) %>%View()
   ggplot(aes(npp_mean_mol_watershed_year, DIC_trans_mol_year))+
   geom_smooth(method = "lm", col = "black")+
   geom_point(aes(col = log10(area))) +
@@ -364,60 +373,10 @@ cowi_dic_trans %>%
   scale_color_viridis_c(name = expression(log[10]*"(oplandsareal [m"^{2}*"])"),
                         guide = guide_colorbar(direction = "horizontal", title.position = "top"))+
   theme_classic()+
-  ylab("DIC transport (mol/år)")+
-  xlab("Terrestrisk netto primærproduktion (mol/år)")+
+  ylab(expression("DIC transport (g C"~y^{-1}*")"))+
+  xlab(expression("Terrestrisk netto primærproduktion (g C"~y^{-1}*")"))+
   theme(axis.text = element_text(colour = "black"), legend.position = c(0.8, 0.25))
 
-#ggsave("dic_trans_terr_npp.png", width = 129, height = 90, units = "mm")
-
-# cowi_pco2_slope <- cowi_pco2 %>% 
-#   group_by(vl_id) %>% 
-#   summarise(pco2_mean = mean(pco2_uatm, na.rm = TRUE), n = n()) %>% 
-#   na.omit() %>% 
-#   left_join(cowi_watersheds %>% 
-#               select(vl_id, slope_mean, area)) %>% 
-#   na.omit()
-# 
-# cowi_pco2_slope %>% 
-#   ggplot(aes(slope_mean, pco2_mean))+
-#   geom_point()+
-#   geom_smooth()
-  
+ggsave(paste0(fig_path, "dic_trans_terr_npp.png"), width = 129, height = 90, units = "mm")
 
 ```
-
-## GAM model
-```{r}
-pco2_catchment <- cowi_pco2 %>% 
-  group_by(vl_id) %>% 
-  summarise(pco2_uatm = mean(pco2_uatm, na.rm = TRUE), n = n(), 
-            x = first(Xutm_Euref89_Zone32), y = first(Yutm_Euref89_Zone32)) %>% 
-  left_join(cowi_watersheds) %>% 
-  na.omit() %>% 
-  filter(n >= 5) %>% 
-  mutate(x = as.numeric(x),
-         y = as.numeric(y)) %>% 
-  select(-vl_id, -n, -cat, -flowacc, -stat_slope, -strahler_order)
-
-zero_vars <- names(colMeans(pco2_catchment))[colMeans(pco2_catchment) < 1]
-
-model_df <- pco2_catchment %>% 
-  mutate(pco2_log10 = log10(pco2_uatm)) %>% 
-  select(-zero_vars, -pco2_uatm) %>% 
-  setNames(make.names(names(.)))
-  
-
-library(mgcv)
-form <- as.formula(paste0("pco2_log10~", paste0("s(`", names(model_df)[(3:24)], "`)", collapse = "+"), "+s(x, y)"))
-
-model1 <- gam(form, data = model_df, select = TRUE)
-
-summary(model1)
-
-model2 <- gam(pco2_log10~s(slope_mean)+s(Broad.leaved.forest)+s(Complex.cultivation.patterns)+
-                s(Discontinuous.urban.fabric)+s(Mixed.forest)+s(Pastures)+
-                s(Transitional.woodland.shrub)+s(DSG)+s(F)+s(HSL)+s(x,y), data = model_df, select = TRUE)
-
-
-```
-

@@ -3,3 +3,8 @@
 .RData
 .Ruserdata
 rawdata/
+old_stuff/
+data/streams.sqlite
+data/lakes.rds
+data/streams_slope.rds
+data/streams.rds
