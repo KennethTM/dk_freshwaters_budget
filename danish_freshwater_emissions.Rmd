@@ -261,6 +261,8 @@ lab_expressions <- rev(c(expression(Vandløb~0-2.5~m), expression(Vandløb~2.5-1
                      expression(Søer~10^4-10^5~m^2), expression(Søer~10^5-10^6~m^2),
                      expression(Søer~10^6-10^7~m^2), expression(Søer~10^7-10^8~m^2)))
 
+
+
 library(ggridges)
 
 ridge_pressure <- so_vl_flux_rates %>% 
@@ -296,6 +298,32 @@ ridge_flux <- so_vl_flux_rates %>%
   theme(axis.text.y = element_text(hjust = 0))
 
 ggsave(paste0(fig_path, "ridge_pressure_flux.png"), ridge_pressure/ridge_flux, width = 174, height = 200, units = "mm")
+
+
+####engelsk version til webpage
+lab_expressions_eng <- rev(c(expression(Streams~0-2.5~m), expression(Streams~2.5-12~m), expression(Streams~">12"~m),
+                     expression(Lakes~0-10^3~m^2), expression(Lakes~10^3-10^4~m^2),
+                     expression(Lakes~10^4-10^5~m^2), expression(Lakes~10^5-10^6~m^2),
+                     expression(Lakes~10^6-10^7~m^2), expression(Lakes~10^7-10^8~m^2)))
+
+so_vl_flux_rates %>%
+  left_join(sizecat_labels) %>%
+  na.omit() %>%
+  filter(variable == "co2_flux_mmol_m2_h") %>%
+  mutate(value = value*10^-3*12*24) %>% #change unit to g C/m2/day
+  ggplot(aes(value, label, fill = stat(x))) +
+  geom_density_ridges_gradient(scale = 3)+
+  scale_fill_viridis_c(direction = -1, limits = c(-2, 10), breaks = seq(-2, 10, 2), option = "A")+
+  scale_y_discrete(labels = lab_expressions_eng)+
+  scale_x_continuous(breaks=seq(-2, 10, 2), limits = c(-2, 10))+
+  theme_ridges()+
+  xlab(expression("CO"[2]~flux~"("*g~C~m^{-2}~d^{-1}*")"))+
+  ylab("Size category")+
+  guides(fill = guide_colorbar(title = NULL, barwidth = unit(8, "mm"), barheight = unit(40, "mm"), ticks = FALSE))+
+  theme(axis.text.y = element_text(hjust = 0))
+
+ggsave(paste0(fig_path, "ridge_flux_english.png"), width = 174, height = 100, units = "mm")
+
 ```
 
 ## Grundvands kemi plot
