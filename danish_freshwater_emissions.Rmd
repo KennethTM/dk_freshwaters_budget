@@ -355,7 +355,7 @@ pco2 <- grw_df$pco2 %>%
   na.omit() %>% 
   ggplot(aes(x, y, fill = layer))+
   geom_raster()+
-  scale_fill_viridis_c(name = expression("pCO2 ("*mu*atm*")"), na.value = "white", option = "E", 
+  scale_fill_viridis_c(name = expression("pCO"[2]*" ("*mu*atm*")"), na.value = "white", option = "E", 
                        breaks = seq(0, 40000, 10000), direction = 1, limits = c(0, 40000))+
   #scale_fill_viridis_d(name = expression("pCO2 ("*mu*atm*")"), na.value = "white", option = "C", direction = -1)+
   theme_void()+
