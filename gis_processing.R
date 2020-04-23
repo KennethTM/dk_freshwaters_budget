@@ -6,23 +6,22 @@
 #Load libs and set paths to data
 library(tidyverse);library(sf)
 
-data_path <- paste0(getwd(), "/data/")
 rawdata_path <- paste0(getwd(), "/rawdata/")
 
 #Read from spatial files and save as .rds objects
 #Denmark lakes
 lakes <- st_read(paste0(rawdata_path, "DK_PhysicalWaters_GML_UTM32-EUREF89/DK_StandingWater.gml")) %>%
   select(gml_id, area = surfaceArea)
-saveRDS(lakes, paste0(data_path, "lakes.rds"))
+saveRDS(lakes, paste0(rawdata_path, "lakes.rds"))
 
 #Denmark streams
 streams <- st_read(paste0(rawdata_path, "DK_PhysicalWaters_GML_UTM32-EUREF89/DK_Watercourse.gml")) %>%
   select(gml_id, length)
-saveRDS(streams, paste0(data_path, "streams.rds"))
+saveRDS(streams, paste0(rawdata_path, "streams.rds"))
 
 #Read stream layer to calculate stream channel slope using the supplied XYZ coordinates
 #Add rownames to id stream segments
-streams <- readRDS(paste0(data_path, "streams.rds")) %>% 
+streams <- readRDS(paste0(rawdata_path, "streams.rds")) %>% 
   rownames_to_column(var = "L1") %>% 
   filter(length > 0)
 
@@ -40,4 +39,4 @@ streams_slope <- streams %>%
   summarise(drop = abs(diff(range(Z_na, na.rm = TRUE)))) %>% 
   right_join(streams) %>% 
   mutate(slope = drop/length)
-saveRDS(streams_slope, paste0(data_path, "streams_slope.rds"))
+saveRDS(streams_slope, paste0(rawdata_path, "streams_slope.rds"))
