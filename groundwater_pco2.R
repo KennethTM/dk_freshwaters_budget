@@ -1,14 +1,22 @@
-#Read data from jupiter xl database
+#Use data extracted from the GEUS JupiterXL database to calculate groundwater pCO2
+#Create groundwater rasters covering Denmark
+
+#Load libraries
 library(raster)
 library(fields)
 library(tidyverse)
 library(lubridate)
 library(sf)
+library(seacarb)
+
+set.seed(100)
+
+data_path <- paste0(getwd(), "/data/")
 
 #Read extracted data
-grw_ph_alk <- readRDS(paste0(getwd(), "/data/grw_ph_alk.rds"))
+grw_ph_alk <- readRDS(paste0(data_path, "grw_ph_alk.rds"))
 
-#Subset data and convert to spatial sf object
+#Subset data, filter observations after 1990, calculate station mean values and convert to spatial sf object
 alk_ph_sf <- grw_ph_alk %>%
   mutate(datetime = ymd_hms(SAMPLEDATE)) %>%
   filter(!is.na(XUTM32EUREF89), !is.na(YUTM32EUREF89),
@@ -20,47 +28,64 @@ alk_ph_sf <- grw_ph_alk %>%
   rename(variable = LONG_TEXT) %>% 
   st_as_sf(coords = c("XUTM32EUREF89", "YUTM32EUREF89"), crs = 25832)
 
+#Alkalinity spatial object
 alk_sf <- alk_ph_sf %>% 
   filter(variable == "Alkalinitet,total TA")
 
+#pH spatial object
+#Subset to match observations of alkalinity and reduce computation time during interpolation
 ph_sf <- alk_ph_sf %>% 
   filter(variable == "pH") %>% 
   sample_n(nrow(alk_sf))
 
+#Get country polygon for Denmark
 dk_polygon <- getData(country = "DNK", level = 0, path = paste0(getwd(), "/data")) %>% 
   st_as_sf() %>% 
   st_transform(25832)
 
+#Create empthy raster as template 
 dk_raster_empthy <- raster(dk_polygon, res = c(1000, 1000))
 
+#Do thin plate spline smoother for alkalinity using x and y coordinates
 alk_tps <- Tps(st_coordinates(alk_sf), alk_sf$value)
 
+#Interpolate to Denmark
 alk_raster <- interpolate(dk_raster_empthy, alk_tps)
 
+#Apply country polygon as mask
 alk_raster_mask <- mask(alk_raster, as(dk_polygon, "Spatial"))
 
-plot(alk_raster_mask)
-
+#Replace negative values (interpolation artifacts) with low value
 alk_raster_mask[alk_raster_mask<0] <- 0.01
 
+#Plot raster
+plot(alk_raster_mask)
+
+#Do thin plate spline smoother for pH  using x and y coordinates
 ph_tps <- Tps(st_coordinates(ph_sf), ph_sf$value)
 
+#Interpolate to Denmark
 ph_raster <- interpolate(dk_raster_empthy, ph_tps)
 
+#Apply country polygon as mask
 ph_raster_mask <- mask(ph_raster, as(dk_polygon, "Spatial"))
 
+#Plot raster
 plot(ph_raster_mask)
 
-library(seacarb)
-
+#Use national groundwater alkalinity and pH raster to calculate pCO2 using a temperature of 10 degrees
+#Create empthy raster
 pco2_raster <- dk_raster_empthy
 
+#Fill empthy raster with calculated pCO2 values
 pco2_raster[] <- carb(flag = 8, var1 = ph_raster_mask[], var2 = alk_raster_mask[]/1000, S = 0, T = 10,
                       k1k2 = "w14", kf = "dg", ks = "d")$pCO2
 
+#Plot raster 
 plot(pco2_raster)
 
+#Save raster for plotting
 saveRDS(list("alk" = alk_raster_mask, 
              "ph" = ph_raster_mask,
              "pco2" = pco2_raster), 
-        paste0(getwd(), "/data/grw_alk_ph_pco2_rasters.rds"))
+        paste0(data_path, "grw_alk_ph_pco2_rasters.rds"))
