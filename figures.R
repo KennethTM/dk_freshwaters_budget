@@ -9,7 +9,7 @@ fig_path <- paste0(getwd(), "/figures/")
 
 ##### Figure 1
 #Read groundwater rasters and convert to dataframe for plotting
-grw_list <- readRDS(paste0(getwd(), "/data/grw_alk_ph_pco2_rasters.rds"))
+grw_list <- readRDS(paste0(getwd(), "/rawdata/grw_alk_ph_pco2_rasters.rds"))
 grw_df <- lapply(grw_list, function(rast){as.data.frame(rast, xy = TRUE)})
 
 #Plot alkalinity, pH and CO2 raster
@@ -103,7 +103,7 @@ ggsave(paste0(fig_path, "ridge_pressure_flux.png"), ridge_pressure/ridge_flux, w
 ##### Figure 3
 #Data read from previous project (Stream watersheds, COWIFonden) added to current directory
 #Data contains stream pco2 (same data as here) and watershed characteristics for many danish streams
-watershed_proj_folder <- paste0(getwd(), "/watershed_proj/")
+watershed_proj_folder <- paste0(getwd(), "/rawdata/watershed_proj/")
 
 proj_watersheds <- readRDS(paste0(watershed_proj_folder, "watershed_stats.rds"))
 

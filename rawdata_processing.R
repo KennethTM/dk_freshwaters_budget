@@ -116,4 +116,4 @@ setkey(dk_vl_q_sub, system, site_id, date)
 dk_samlet_carb_with_q <- dk_vl_q_sub[dk_samlet_carb]
 
 #Save complete table to file in data folder
-saveRDS(dk_samlet_carb_with_q, paste0(getwd(), "/data/", "dk_carb.rds"))
+saveRDS(dk_samlet_carb_with_q, paste0(rawdata_path, "dk_carb.rds"))

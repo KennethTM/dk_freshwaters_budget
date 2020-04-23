@@ -7,7 +7,6 @@ library(seacarb);library(lwgeom);library(openxlsx)
 
 set.seed(9999)
 
-data_path <- paste0(getwd(), "/data/")
 rawdata_path <- paste0(getwd(), "/rawdata/")
 
 #EPSG number for UTM zone 32 for Denmark
@@ -20,7 +19,7 @@ time_end <- ymd("2010-12-31")
 #####Load and set up nescessary data
 
 #Load data and exclude outliers or low pH values which may bias CO2 calculation
-dk_carb <- readRDS(paste0(data_path, "dk_carb.rds")) %>% 
+dk_carb <- readRDS(paste0(rawdata_path, "dk_carb.rds")) %>% 
   tbl_df() %>% 
   filter(between(date, time_start, time_end)) %>% 
   filter(alk > 0 & alk < 10, 
@@ -55,7 +54,7 @@ wnd_grid_sf <- wnd_grid %>%
   st_transform(dk_epsg)
 
 #Denmark lakes
-lakes <- readRDS(paste0(data_path, "lakes.rds"))
+lakes <- readRDS(paste0(rawdata_path, "lakes.rds"))
 
 #Denmark lakes CO2 data joined with wind and area data
 so_pco2_sf <- so_pco2 %>%
@@ -64,7 +63,7 @@ so_pco2_sf <- so_pco2 %>%
   left_join(wnd_grid[, c("date", "dmi_cell", "wnd")])
 
 #Denmark streams segments with slope
-streams_slope <- readRDS(paste0(data_path, "streams_slope.rds")) %>% 
+streams_slope <- readRDS(paste0(rawdata_path, "streams_slope.rds")) %>% 
   st_as_sf()
 
 #Join slope values to CO2 data
@@ -238,5 +237,5 @@ upscale_total <- bind_rows(bind_rows(add_column(so_upscale_sizecat, system = "la
 
 #Write to excel
 #Units in table is gigagram C per year
-write.xlsx(upscale_total, paste0(data_path, "co2_budget_table.xlsx"))
+write.xlsx(upscale_total, "co2_budget_table.xlsx")
 

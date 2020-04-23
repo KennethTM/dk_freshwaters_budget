@@ -11,10 +11,10 @@ library(seacarb)
 
 set.seed(100)
 
-data_path <- paste0(getwd(), "/data/")
+rawdata_path <- paste0(getwd(), "/rawdata/")
 
 #Read extracted data
-grw_ph_alk <- readRDS(paste0(data_path, "grw_ph_alk.rds"))
+grw_ph_alk <- readRDS(paste0(rawdata_path, "grw_ph_alk.rds"))
 
 #Subset data, filter observations after 1990, calculate station mean values and convert to spatial sf object
 alk_ph_sf <- grw_ph_alk %>%
@@ -39,7 +39,7 @@ ph_sf <- alk_ph_sf %>%
   sample_n(nrow(alk_sf))
 
 #Get country polygon for Denmark
-dk_polygon <- getData(country = "DNK", level = 0, path = paste0(getwd(), "/data")) %>% 
+dk_polygon <- getData(country = "DNK", level = 0, path = rawdata_path) %>% 
   st_as_sf() %>% 
   st_transform(25832)
 
@@ -88,4 +88,4 @@ plot(pco2_raster)
 saveRDS(list("alk" = alk_raster_mask, 
              "ph" = ph_raster_mask,
              "pco2" = pco2_raster), 
-        paste0(data_path, "grw_alk_ph_pco2_rasters.rds"))
+        paste0(rawdata_path, "grw_alk_ph_pco2_rasters.rds"))

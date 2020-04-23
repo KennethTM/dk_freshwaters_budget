@@ -54,7 +54,7 @@ alk_ph <- all %>%
   collect()
 
 #Save to file
-saveRDS(alk_ph, paste0(getwd(), "/data/grw_ph_alk.rds"))
+saveRDS(alk_ph, paste0(getwd(), "/rawdata/grw_ph_alk.rds"))
 
 #Close connection to database
 DBI::dbDisconnect(con)
