@@ -165,3 +165,22 @@ so_vl_flux_rates %>%
   theme(axis.text.y = element_text(hjust = 0))
 
 ggsave(paste0(fig_path, "ridge_flux_english.png"), width = 174, height = 100, units = "mm")
+
+##### Figure in danish for chronic
+so_vl_flux_rates %>% 
+  left_join(sizecat_labels) %>% 
+  na.omit() %>% 
+  filter(variable != "co2_flux_mmol_m2_h") %>% 
+  ggplot(aes(value, label, fill = stat(x))) +
+  geom_vline(xintercept = 410, linetype = 1, col = grey(0.6), size = 2)+
+  geom_density_ridges_gradient(scale = 3, rel_min_height = 0.005)+
+  scale_fill_viridis_c(direction = -1, option = "D", limits =c(0, 12000))+
+  scale_y_discrete(labels = lab_expressions)+
+  scale_x_continuous(limits = c(0, 12000), expand = c(0, 0))+
+  theme_ridges()+
+  xlab(expression("CO"[2]~partialtryk~"("*mu*"atm)"))+
+  ylab("Størrelseskategori")+
+  guides(fill = guide_colorbar(title = NULL, barwidth = unit(8, "mm"), barheight = unit(40, "mm"), ticks = FALSE))+
+  theme(axis.text.y = element_text(hjust = 0))
+
+ggsave(paste0(fig_path, "ridge_flux_chronic.png"), width = 174, height = 100, units = "mm")
