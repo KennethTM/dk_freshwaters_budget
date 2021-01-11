@@ -55,8 +55,8 @@ so_vl_flux_rates <- bind_rows(so_co2_flux, vl_co2_flux) %>%
 sizecat_labels <- data.frame(sizecat = sort(unique(so_vl_flux_rates$sizecat)),
                              label = c("0-10^3^~m^2^", "10^3^-10^4^~m^2^", "10^4^-10^5^~m^2^", 
                                        "10^5^-10^6^~m^2^", "10^6^-10^7^~m^2^", "10^7^-10^8^~m^2^",
-                                       "'>'*12~m", "2.5-12~m", "0-2.5~m")) %>% 
-  mutate(label = factor(label, levels = rev(c("0-2.5~m", "2.5-12~m", "'>'*12~m",
+                                       "0-2.5~m", "2.5-12~m", "'>'*12~m")) %>% 
+  mutate(label = factor(label, levels = rev(c("0-2.5~m", "2.5-12~m", "'>'*12~m",  
                                               "0-10^3^~m^2^", "10^3^-10^4^~m^2^", "10^4^-10^5^~m^2^",
                                               "10^5^-10^6^~m^2^", "10^6^-10^7^~m^2^", "10^7^-10^8^~m^2^"))))
 
@@ -184,3 +184,60 @@ so_vl_flux_rates %>%
   theme(axis.text.y = element_text(hjust = 0))
 
 ggsave(paste0(fig_path, "ridge_flux_chronic.png"), width = 174, height = 100, units = "mm")
+
+#########################################
+### Figure 2/Ridge plot in english 
+so_vl_flux_rates <- bind_rows(so_co2_flux, vl_co2_flux) %>% 
+  select(site_id, system, sizecat, co2_flux_mmol_m2_h, pCO2_uatm) %>% 
+  gather(variable, value, co2_flux_mmol_m2_h, pCO2_uatm)
+
+#Labels for plotting
+sizecat_labels <- data.frame(sizecat = sort(unique(so_vl_flux_rates$sizecat)),
+                             label = c("0-10^3^~m^2^", "10^3^-10^4^~m^2^", "10^4^-10^5^~m^2^", 
+                                       "10^5^-10^6^~m^2^", "10^6^-10^7^~m^2^", "10^7^-10^8^~m^2^",
+                                       "0-2.5~m", "2.5-12~m", "'>'*12~m")) %>% 
+  mutate(label = factor(label, levels = rev(c("0-2.5~m", "2.5-12~m", "'>'*12~m",  
+                                              "0-10^3^~m^2^", "10^3^-10^4^~m^2^", "10^4^-10^5^~m^2^",
+                                              "10^5^-10^6^~m^2^", "10^6^-10^7^~m^2^", "10^7^-10^8^~m^2^"))))
+
+lab_expressions <- rev(c(expression(Streams~0-2.5~m), expression(Streams~2.5-12~m), expression(Streams~">12"~m),
+                         expression(Lakes~0-10^3~m^2), expression(Lakes~10^3-10^4~m^2), 
+                         expression(Lakes~10^4-10^5~m^2), expression(Lakes~10^5-10^6~m^2),
+                         expression(Lakes~10^6-10^7~m^2), expression(Lakes~10^7-10^8~m^2)))
+
+ridge_pressure <- so_vl_flux_rates %>% 
+  left_join(sizecat_labels) %>% 
+  na.omit() %>% 
+  filter(variable != "co2_flux_mmol_m2_h") %>% 
+  ggplot(aes(value, label, fill = stat(x))) +
+  geom_vline(xintercept = 410, linetype = 1, col = "grey", size = 1)+
+  geom_density_ridges_gradient(scale = 3)+
+  scale_fill_viridis_c(direction = -1, option = "B")+
+  scale_y_discrete(labels = lab_expressions)+
+  scale_x_continuous(breaks=seq(0, 12000, 2000), limits = c(0, 12000))+
+  theme_ridges()+
+  xlab(expression("CO"[2]~partial~pressure~"("*mu*"atm)"))+
+  ylab("Size category")+
+  guides(fill = guide_colorbar(title = NULL, barwidth = unit(8, "mm"), barheight = unit(40, "mm"), ticks = FALSE))+
+  theme(axis.text.y = element_text(hjust = 0))
+
+ridge_flux <- so_vl_flux_rates %>% 
+  left_join(sizecat_labels) %>% 
+  na.omit() %>% 
+  filter(variable == "co2_flux_mmol_m2_h") %>% 
+  mutate(value = value*10^-3*12*24) %>% #change unit to g C/m2/day
+  ggplot(aes(value, label, fill = stat(x))) +
+  geom_density_ridges_gradient(scale = 3)+
+  scale_fill_viridis_c(direction = -1, limits = c(-2, 8), breaks = seq(-2, 8, 2))+
+  scale_y_discrete(labels = lab_expressions)+
+  scale_x_continuous(breaks=seq(-2, 8, 2), limits = c(-2, 8))+
+  theme_ridges()+
+  xlab(expression("CO"[2]~flux~"("*g~C~m^{-2}~d^{-1}*")"))+
+  ylab("Size category")+
+  guides(fill = guide_colorbar(title = NULL, barwidth = unit(8, "mm"), barheight = unit(40, "mm"), ticks = FALSE))+
+  theme(axis.text.y = element_text(hjust = 0))
+
+ridge_pressure/ridge_flux
+
+#Save to file
+ggsave(paste0(fig_path, "ridge_pressure_flux_english.png"), width = 210, height = 230, units = "mm")
