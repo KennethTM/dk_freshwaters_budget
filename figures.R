@@ -212,7 +212,7 @@ ridge_pressure <- so_vl_flux_rates %>%
   ggplot(aes(value, label, fill = stat(x))) +
   geom_vline(xintercept = 410, linetype = 1, col = "grey", size = 1)+
   geom_density_ridges_gradient(scale = 3)+
-  scale_fill_viridis_c(direction = -1, option = "B")+
+  scale_fill_viridis_c(direction = -1)+
   scale_y_discrete(labels = lab_expressions)+
   scale_x_continuous(breaks=seq(0, 12000, 2000), limits = c(0, 12000))+
   theme_ridges()+
@@ -228,7 +228,7 @@ ridge_flux <- so_vl_flux_rates %>%
   mutate(value = value*10^-3*12*24) %>% #change unit to g C/m2/day
   ggplot(aes(value, label, fill = stat(x))) +
   geom_density_ridges_gradient(scale = 3)+
-  scale_fill_viridis_c(direction = -1, limits = c(-2, 8), breaks = seq(-2, 8, 2))+
+  scale_fill_viridis_c(direction = -1, limits = c(-2, 8), breaks = seq(-2, 8, 2), option = "B")+
   scale_y_discrete(labels = lab_expressions)+
   scale_x_continuous(breaks=seq(-2, 8, 2), limits = c(-2, 8))+
   theme_ridges()+
