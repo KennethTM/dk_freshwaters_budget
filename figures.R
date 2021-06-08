@@ -195,12 +195,12 @@ so_vl_flux_rates <- bind_rows(so_co2_flux, vl_co2_flux) %>%
 sizecat_labels <- data.frame(sizecat = sort(unique(so_vl_flux_rates$sizecat)),
                              label = c("0-10^3^~m^2^", "10^3^-10^4^~m^2^", "10^4^-10^5^~m^2^", 
                                        "10^5^-10^6^~m^2^", "10^6^-10^7^~m^2^", "10^7^-10^8^~m^2^",
-                                       "0-2.5~m", "2.5-12~m", "'>'*12~m")) %>% 
-  mutate(label = factor(label, levels = rev(c("0-2.5~m", "2.5-12~m", "'>'*12~m",  
+                                       "0-2.5~m", "2.5-12~m", "'>'~12~m")) %>% 
+  mutate(label = factor(label, levels = rev(c("0-2.5~m", "2.5-12~m", "'>'~12~m",  
                                               "0-10^3^~m^2^", "10^3^-10^4^~m^2^", "10^4^-10^5^~m^2^",
                                               "10^5^-10^6^~m^2^", "10^6^-10^7^~m^2^", "10^7^-10^8^~m^2^"))))
 
-lab_expressions <- rev(c(expression(Streams~0-2.5~m), expression(Streams~2.5-12~m), expression(Streams~">12"~m),
+lab_expressions <- rev(c(expression(Streams~0-2.5~m), expression(Streams~2.5-12~m), expression(Streams~"> 12"~m),
                          expression(Lakes~0-10^3~m^2), expression(Lakes~10^3-10^4~m^2), 
                          expression(Lakes~10^4-10^5~m^2), expression(Lakes~10^5-10^6~m^2),
                          expression(Lakes~10^6-10^7~m^2), expression(Lakes~10^7-10^8~m^2)))
